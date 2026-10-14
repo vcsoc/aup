@@ -36,6 +36,8 @@ export function summarize(events: Event[], now = new Date(), catalog = bundledPr
   for (const event of unique.values()) {
     const day = localDay(event.time);
     if (!day) continue;
+    const at = Date.parse(event.time);
+    if (at <= now.getTime()) usage.lastUsedAt = Math.max(usage.lastUsedAt || 0, at);
     sessions.add(event.session);
     if (event.prompt) { if (day === today) usage.prompts++; continue; }
     const cost = quoteCost(event, catalog);

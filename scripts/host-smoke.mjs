@@ -31,6 +31,7 @@ try {
   expect(await page.locator('.agent-card').evaluateAll(cards => cards.every(card => card.getBoundingClientRect().height <= 70))).toBe(true);
   await expect(page.getByRole('heading', { name: maliciousName, exact: true })).toBeVisible();
   expect(await page.locator('img').count()).toBe(0); expect(await page.evaluate(() => window.injected)).toBeUndefined();
+  expect(await page.locator('.agent-card').first().getAttribute('data-agent')).toBe('codex');
   const codex = page.locator('[data-agent=codex]');
   await expect(codex.locator('.daily-tokens')).toContainText('Uncached30');
   await expect(page.locator('[data-agent=pi] .daily-tokens')).toContainText('↗ Codex');

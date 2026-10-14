@@ -95,6 +95,16 @@ describe('aggregation', () => {
   });
 });
 describe('scanner cache', () => {
+  it('projects the latest observed request or prompt time, ignoring future timestamps for ranking', () => {
+    const base = { id: 'first', session: 'session', model: 'gpt', tokens: 10 };
+    const usage = summarize([
+      { ...base, time },
+      { ...base, id: 'prompt', time: '2026-10-14T13:00:00Z', prompt: true, tokens: 0 },
+      { ...base, id: 'future', time: '2026-10-16T12:00:00Z' },
+      { ...base, id: 'invalid', time: 'invalid' },
+    ], new Date('2026-10-14T14:00:00Z'));
+    expect(usage.lastUsedAt).toBe(Date.parse('2026-10-14T13:00:00Z'));
+  });
   it('does not price omitted required input/output fields as zero', async () => {
     const models = { gpt: { cost: { input: 2, output: 10, cache_read: 0.2 } } }; const catalog = normalizePricingData({ openai: { models }, anthropic: { models } });
     const fixtures = [

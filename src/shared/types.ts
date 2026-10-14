@@ -16,6 +16,7 @@ export interface Usage {
   // cannot provide a trustworthy cache breakdown (e.g. imported aggregates).
   todayCachedTokens?: number; sources?: Record<string, number>;
   todayCost?: CostSummary; totalCost?: CostSummary; history?: HistoryDay[];
+  lastUsedAt?: number; // Latest observed local request/prompt timestamp, not file mtime.
 }
 export interface Resources { cpu: number; memory: number; processes: number }
 export interface Agent {

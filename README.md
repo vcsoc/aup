@@ -31,6 +31,14 @@ wide activity charts, and consistent token/CPU/RAM colors. Empty quota/status
 rows are folded into the centered heading. Refresh is an icon beside Settings;
 details expand with **+**, and today's cost appears next to each provider name.
 
+Providers always sort **most active first**: running agents, then today's
+processed tokens descending, then latest observed request/prompt, then recent
+seven-day volume. Complete ties use name/ID for a stable order. CPU/RAM samples
+never shuffle equal-usage rows. Filters retain this order; new usage and process
+starts/stops update it automatically. Undated imports are not treated as newly
+used just because their file was refreshed. Stats provider totals (and providers
+within each day) sort by selected-range/day token usage descending.
+
 The panel opens immediately, with a robot icon in the menu bar / system tray.
 Click it to show or hide the panel; right-click for Open, Refresh, and Quit.
 macOS also shows the highest current quota percentage beside the icon. Closing

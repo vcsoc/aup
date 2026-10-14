@@ -68,6 +68,14 @@ weeks, DST-safe calendar shifts, provider/day summaries, and partial cost/cache
 coverage. The renderer retains date/filter state across live updates and avoids
 replacing focused date controls.
 
+`src/shared/activity.ts` provides a nonmutating default provider order: running,
+today's processed usage, latest observed request/prompt, recent volume, then
+stable name/ID ties. `Usage.lastUsedAt` is optional metadata projected from real
+events, never inferred from refreshed file mtimes. Imported nonzero day buckets
+provide date-only recency. Future/invalid activity timestamps are ignored for
+ranking; CPU/RAM samples do not affect it. Filters and provider selection retain
+the activity order; Stats ranks providers by the selected period's volume.
+
 `src/main/quotas.ts` binds cache identity to the selected home and credentials.
 Only successful checks advance `at`; failures retain the same identity's last
 successful numbers and mark them stale. Provider errors are sanitized, not raw

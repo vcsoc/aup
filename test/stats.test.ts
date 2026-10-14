@@ -35,6 +35,12 @@ describe('provider and day statistics', () => {
     expect(stats.days.filter(row => row.date === '2026-10-14').map(row => row.tokens)).toEqual([300, 50]);
     expect(stats.days.filter(row => row.date === '2026-10-18')[0].tokens).toBe(0);
   });
+  it('sorts providers by selected-range usage and each day’s providers by activity', () => {
+    const stats = rangeStats(fixture().reverse(), { from: '2026-10-12', to: '2026-10-18' });
+    expect(stats.providers.map(row => row.id)).toEqual(['codex', 'pi']);
+    expect(stats.days.map(row => row.date)).toEqual(stats.days.map(row => row.date).sort());
+    expect(stats.days.filter(row => row.date === '2026-10-14').map(row => row.tokens)).toEqual([300, 50]);
+  });
   it('supports dates outside the seven-day chart and provider filtering', () => {
     const older = rangeStats(fixture(), { from: '2026-09-01', to: '2026-09-01' });
     expect(older.total.tokens).toBe(100); expect(older.total.cost.usd).toBe(1);

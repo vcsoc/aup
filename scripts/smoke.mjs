@@ -83,6 +83,7 @@ try {
   await expect(page.locator('.status-pill.running')).toHaveCount(4);
   expect(await page.locator('.status-pill.running').evaluateAll(labels => labels.every(label => getComputedStyle(label).color === 'rgb(57, 231, 95)' && getComputedStyle(label.querySelector('i')).backgroundColor === getComputedStyle(label).color))).toBe(true);
   expect(await page.locator('.status-pill:not(.running)').evaluateAll(labels => labels.every(label => getComputedStyle(label).color !== 'rgb(57, 231, 95)' && label.textContent === 'Idle'))).toBe(true);
+  expect(await page.locator('.agent-card').evaluateAll(cards => cards.map(card => card.dataset.agent))).toEqual(['claude', 'pi', 'codex', 'kimi', 'grok', 'fireworks']);
   await expect(page.locator('.agent-cost')).toHaveCount(6);
   expect(await page.evaluate(() => [...document.querySelectorAll('body, button, input, select, h2, p, strong')].every(el => getComputedStyle(el).fontFamily.startsWith('"JetBrains Mono"')))).toBe(true);
   await mkdir('.test-results', { recursive: true });
@@ -91,6 +92,8 @@ try {
   const currentWeek = weekRange();
   await expect(page.locator('#stats-from')).toHaveValue(currentWeek.from); await expect(page.locator('#stats-to')).toHaveValue(currentWeek.to);
   await expect(page.locator('tbody tr')).toHaveCount(6);
+  const providerOrder = await page.evaluate(async ({ from, to }) => (await window.panel.snapshot()).agents.map(agent => ({ name: agent.name, tokens: agent.usage.history.filter(day => day.date >= from && day.date <= to).reduce((sum, day) => sum + day.tokens, 0) })).sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name, 'en')).map(agent => agent.name), currentWeek);
+  expect(await page.locator('tbody th').allTextContents()).toEqual(providerOrder);
   await expect(page.getByRole('button', { name: 'Update prices' })).toBeDisabled();
   await expect.poll(() => page.evaluate(() => Math.abs(window.innerHeight - document.querySelector('#app').getBoundingClientRect().height))).toBeLessThanOrEqual(2);
   await page.screenshot({ path: '.test-results/stats-providers.png', fullPage: true });

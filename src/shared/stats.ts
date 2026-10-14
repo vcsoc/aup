@@ -60,6 +60,7 @@ export function rangeStats(agents: Agent[], range: DateRange, provider = 'all'):
     days.push(...rows.filter(row => row.tokens > 0));
     return { ...aggregateRows(rows), id: agent.id, name: agent.name };
   });
+  providers.sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name, 'en') || a.id.localeCompare(b.id, 'en'));
   // Include zero-activity dates for ordinary ranges without expanding years of
   // missing history into an unbounded table.
   const from = calendarDate(range.from)!, to = calendarDate(range.to)!;
@@ -69,6 +70,6 @@ export function rangeStats(agents: Agent[], range: DateRange, provider = 'all'):
       if (!days.some(day => day.date === key)) days.push({ id: 'empty', name: 'No recorded usage', date: key, tokens: 0, cachedTokens: 0, cost: emptyCost() });
     }
   }
-  days.sort((a, b) => a.date!.localeCompare(b.date!) || a.name.localeCompare(b.name));
+  days.sort((a, b) => a.date!.localeCompare(b.date!) || b.tokens - a.tokens || a.name.localeCompare(b.name, 'en') || a.id.localeCompare(b.id, 'en'));
   return { providers, days, total: aggregateRows(providers) };
 }
