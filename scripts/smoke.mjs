@@ -80,6 +80,9 @@ try {
   expect(new Set(metrics.colors).size).toBe(3);
   expect(metrics.tokenLabel).toBe(metrics.tokenValue); expect(metrics.tokenValue).toBe(metrics.colors[0]); expect(metrics.cpuLabel).toBe(metrics.colors[1]);
   expect(metrics.tokenSize).toBeGreaterThanOrEqual(12); expect(metrics.cpuSize).toBeGreaterThanOrEqual(11); expect(metrics.ramSize).toBeGreaterThanOrEqual(11);
+  await expect(page.locator('.status-pill.running')).toHaveCount(4);
+  expect(await page.locator('.status-pill.running').evaluateAll(labels => labels.every(label => getComputedStyle(label).color === 'rgb(57, 231, 95)' && getComputedStyle(label.querySelector('i')).backgroundColor === getComputedStyle(label).color))).toBe(true);
+  expect(await page.locator('.status-pill:not(.running)').evaluateAll(labels => labels.every(label => getComputedStyle(label).color !== 'rgb(57, 231, 95)' && label.textContent === 'Idle'))).toBe(true);
   await expect(page.locator('.agent-cost')).toHaveCount(6);
   expect(await page.evaluate(() => [...document.querySelectorAll('body, button, input, select, h2, p, strong')].every(el => getComputedStyle(el).fontFamily.startsWith('"JetBrains Mono"')))).toBe(true);
   await mkdir('.test-results', { recursive: true });
@@ -116,6 +119,7 @@ try {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.locator('select[name=theme]').selectOption('light');
   await page.getByRole('button', { name: 'Save settings' }).click();
+  expect(await page.locator('.status-pill.running').evaluateAll(labels => labels.every(label => getComputedStyle(label).color === 'rgb(0, 138, 46)' && getComputedStyle(label.querySelector('i')).backgroundColor === getComputedStyle(label).color))).toBe(true);
   await page.screenshot({ path: '.test-results/panel-light.png', fullPage: true });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(360, 600));
   await page.waitForFunction(() => window.innerWidth === 360);

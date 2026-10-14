@@ -104,7 +104,8 @@ main { padding: 6px 8px; }
 .agent-identity h2 { min-width: 0; margin: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-identity > span { max-width: 85px; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-pill { display: flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--faint); font-size: 9px; white-space: nowrap; }
-.status-pill.running { color: var(--accent); }
+.status-pill.running { color: var(--running-color); }
+.status-pill.running i { background: currentColor; }
 .quota-area { margin-top: 3px; }
 .quota-row { display: grid; grid-template-columns: minmax(0, 115px) minmax(24px, 1fr) 27px auto; align-items: center; gap: 5px; font-size: 10px; line-height: 17px; }
 .quota-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -156,9 +157,9 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 footer button { padding: 2px 0 2px 3px; border: 0; background: none; color: var(--muted); font-size: 8px; text-decoration: underline; white-space: nowrap; }
 
 /* Shared metric colors keep the value, unit, and label together. */
-:root { --token-color: #b2d4a2; --cpu-color: #97bde8; --ram-color: #e5b78e; --cost-color: #cfb1e5; }
-:root[data-theme=light] { --token-color: #416431; --cpu-color: #315e92; --ram-color: #875127; --cost-color: #76518e; }
-@media (prefers-color-scheme: light) { :root[data-theme=system] { --token-color: #416431; --cpu-color: #315e92; --ram-color: #875127; --cost-color: #76518e; } }
+:root { --token-color: #b2d4a2; --cpu-color: #97bde8; --ram-color: #e5b78e; --cost-color: #cfb1e5; --running-color: #39e75f; }
+:root[data-theme=light] { --token-color: #416431; --cpu-color: #315e92; --ram-color: #875127; --cost-color: #76518e; --running-color: #008a2e; }
+@media (prefers-color-scheme: light) { :root[data-theme=system] { --token-color: #416431; --cpu-color: #315e92; --ram-color: #875127; --cost-color: #76518e; --running-color: #008a2e; } }
 .metric-tokens, .metric-tokens > span, .metric-tokens > strong { color: var(--token-color); }
 .metric-cpu, .metric-cpu > span, .metric-cpu > strong, .resource-inline .metric-cpu, .resource-inline .metric-cpu small { color: var(--cpu-color); }
 .metric-ram, .metric-ram > span, .metric-ram > strong, .resource-inline .metric-ram { color: var(--ram-color); }

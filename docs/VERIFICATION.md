@@ -12,6 +12,7 @@ npm 10.9.7, Electron 44.7.2.
 | Production build | `npm run build`: main/worker compilation and local Vite renderer assets |
 | Worker integration | `node scripts/worker-smoke.mjs`: isolated Claude/Codex/Pi/import fixtures, copied-response deduplication, backend attribution, cached-read breakdown, quotas off, projected metadata, settings reset |
 | Desktop UI | `node scripts/smoke.mjs`: launches actual Electron, checks content-fitted 420px window height (including shrink-on-filter), larger matching token/CPU/RAM colors, wider charts, today costs, provider/day Stats tabs, editable inclusive dates, validation, week navigation, provider filtering, keyboard tabs, locally loaded JetBrains Mono, settings, dark/light themes, narrow/wide resizing and refresh |
+| Running status color | v0.2.1 development and installed UI checks assert bright green Running text/dots in dark mode, saturated contrast-safe green in light mode, and muted Idle labels. |
 | Runtime isolation | Smoke checks confirm sandbox/context isolation enabled, Node integration disabled, no renderer `require`/`process` or arbitrary filesystem preload method |
 | Real host + worker | `node scripts/host-smoke.mjs`: temporary profile, actual collection, settings persisted through IPC, malicious imported name escaped, fixture credential/content not included in snapshot, renderer networking denied, recorded Pi/Codex costs deduplicated, partial cost/date totals and oversize-file warnings shown in Stats, invalid height IPC rejected |
 | Login launch integration | `node scripts/startup-smoke.mjs`: hidden `--startup` launch, nonempty native menu-bar image with opaque pixels, macOS template flag and positive native bounds even with no quota title, tray-unavailable fallback, reopen, old-settings migration, demo/smoke registration isolation |
@@ -20,7 +21,7 @@ npm 10.9.7, Electron 44.7.2.
 | Unpacked application | `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack`: creates native ARM64 `.app` |
 | Packaged runtime | `scripts/smoke.mjs`, `scripts/host-smoke.mjs`, and `scripts/startup-smoke.mjs` pass with `AUP_EXECUTABLE` pointing at the unpacked `.app` executable, including its ASAR-packaged worker/dependencies and bundled JetBrains Mono |
 | Install image | `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64`: creates unsigned ARM64 DMG |
-| Installed update | Installed v0.2.0 at `/Applications/Agent Usage Panel.app`; UI, real-host, and login/tray smoke scripts passed against that executable using temporary profiles. Verified actual retained-history Stats with the normal profile, then relaunched the normal app and left it running with its menu-bar item. Existing settings/profile directories were not replaced. The previous v0.1.2 bundle is retained under `~/Library/Caches/Agent Usage Panel/backups/20261014-155318/` (earlier backups also retained). |
+| Installed update | Installed v0.2.1 at `/Applications/Agent Usage Panel.app`; UI, real-host, and login/tray smoke scripts passed against that executable using temporary profiles. Verified actual retained-history Stats with the normal profile, then relaunched the normal app and left it running with its menu-bar item. Existing settings/profile directories were not replaced. The previous v0.2.0 bundle is retained under `~/Library/Caches/Agent Usage Panel/backups/20261014-155728/` (earlier backups also retained). |
 | Actual public pricing refresh | Installed normal app's **Update prices** completed successfully on `2026-10-14T19:54:26.608Z`, caching **8,356** current public model prices and rescanning actual history without a pricing error. Bundled baseline remains 8,355 models from the earlier same-day fetch. This request was separate from provider quota checks and carried no account/usage data. |
 | Dependencies | `npm audit`: **0 vulnerabilities** (including development dependencies) |
 | Upstream preservation | All **30 vendored files** compared byte-for-byte against pinned Omarchy commit `84cfb93959f4fe0bbb71de71593b36647d2ba78d` |
@@ -88,7 +89,7 @@ suite is reference material, not counted among this project's passing tests.
 ## Local artifacts
 
 - `release/mac-arm64/Agent Usage Panel.app`
-- `release/Agent Usage Panel-0.2.0-arm64.dmg`
+- `release/Agent Usage Panel-0.2.1-arm64.dmg`
 
 Build outputs are ignored by Git. The app is unsigned and unnotarized; no signing
 identity was used and nothing was published. See the README for building on each
