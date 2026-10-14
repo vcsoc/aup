@@ -23,11 +23,28 @@ try {
   const snapshot = await page.evaluate(() => window.panel.snapshot());
   const noTray = snapshot.errors.includes('System tray unavailable; use this window or the application launcher.');
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(noTray);
+  if (!noTray) {
+    // Inspect the real native item on its next normal update, not a mock Tray.
+    await app.evaluate(({ Tray }) => {
+      const setImage = Tray.prototype.setImage;
+      Tray.prototype.setImage = function(image) {
+        globalThis.__trayCheck = { empty: image.isEmpty(), template: image.isTemplateImage(), pixels: image.toBitmap().some((value, i) => i % 4 === 3 && value > 0), bounds: this.getBounds(), title: this.getTitle(), destroyed: this.isDestroyed() };
+        return setImage.call(this, image);
+      };
+    });
+    await page.evaluate(settings => window.panel.saveSettings(settings), settings);
+    const nativeTray = await app.evaluate(() => globalThis.__trayCheck);
+    expect(nativeTray.empty).toBe(false); expect(nativeTray.pixels).toBe(true); expect(nativeTray.destroyed).toBe(false);
+    if (process.platform === 'darwin') {
+      expect(nativeTray.template).toBe(true); expect(nativeTray.title).toBe('');
+      expect(nativeTray.bounds.width).toBeGreaterThan(0); expect(nativeTray.bounds.height).toBeGreaterThan(0);
+    }
+  }
   // Reopening the app still reveals a hidden login-started panel.
   await app.evaluate(({ app }) => app.emit('activate'));
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.locator('input[name=startAtLogin]')).toBeChecked();
   await expect(page.locator('input[name=startAtLogin]')).toBeDisabled();
-  console.log('PASS: background login launch, tray fallback, reopen, settings migration, and smoke isolation from OS startup registration.');
+  console.log('PASS: native nonempty menu-bar icon (macOS template/bounds), background login launch, tray fallback, reopen, settings migration, and smoke isolation from OS startup registration.');
 } finally { await app?.close(); await rm(home, { recursive: true, force: true }); }

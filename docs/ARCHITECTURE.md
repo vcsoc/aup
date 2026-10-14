@@ -14,6 +14,8 @@ OS tray/menu bar + normal desktop window
           │   ├── Codex native OpenAI rollout counters
           │   ├── Grok completed-turn ledger
           │   └── Pi response deduplication + OpenAI Codex attribution
+          ├── per-local-day token/cache/cost aggregates (all retained history)
+          ├── model pricing (bundled/cache, explicit public-catalog refresh)
           ├── quota collector (per-provider cache)
           │   ├── fixed-host HTTPS, opt-in only
           │   └── Codex line-delimited app-server RPC
@@ -51,6 +53,21 @@ shows `todayTokens - todayCachedTokens` as **Uncached today** only when all
 nonempty sources have a known breakdown. Missing cache data stays unknown.
 Pi resource attribution is unchanged and never counted again under Codex.
 
+`src/main/pricing.ts` prefers recorded per-request USD, otherwise exact
+provider/model list prices from a normalized, bundled models.dev catalog.
+Separate input/output/cache components and context thresholds determine cost;
+unknown models/breakdowns remain unpriced. Rates, identity, and coverage are
+validated. Only explicit refresh requests download the fixed public endpoint;
+no usage or credentials are sent. Public cache writes are atomic. Repricing
+reuses parsed events and a generation change discards old in-flight results.
+
+`Usage.history` contains only daily aggregates, not raw requests. The seven-day
+chart is derived from it without limiting Stats to seven days. Shared pure
+helpers in `src/shared/stats.ts` implement inclusive local dates, Monday–Sunday
+weeks, DST-safe calendar shifts, provider/day summaries, and partial cost/cache
+coverage. The renderer retains date/filter state across live updates and avoids
+replacing focused date controls.
+
 `src/main/quotas.ts` binds cache identity to the selected home and credentials.
 Only successful checks advance `at`; failures retain the same identity's last
 successful numbers and mark them stale. Provider errors are sanitized, not raw
@@ -84,9 +101,13 @@ Windows/Linux use `--startup`; macOS checks the native login-launch flag. Login
 launches remain hidden if a tray is available. Startup registration is disabled
 for unpackaged, demo, and smoke runs; OS refusal is surfaced, not swallowed.
 
-The main process restarts failed workers at most three times. It never starts a shell or a local
-web server. `assets/preload.cjs` exposes only seven request capabilities and one
-snapshot subscription to a context-isolated, sandboxed renderer.
+The main process restarts failed workers at most three times. It never starts a
+shell or a local web server. `assets/preload.cjs` exposes nine fixed request
+capabilities and one snapshot subscription. New capabilities request a fixed
+public price refresh or a bounded numeric content height—not arbitrary window
+options, files, or URLs. A ResizeObserver requests content fitting; the host
+clamps to the current display work area, preserves width, and leaves maximized
+or fullscreen windows alone.
 
 The renderer uses escaped text at all HTML insertion points. Its CSP disables
 connections, external scripts, objects, base URL replacement, and form submission.

@@ -28,7 +28,9 @@ must be read to attribute runtime entrypoints and descendants. These raw inputs
 are transient and never stored, sent to the renderer, exported, or logged.
 Only usage metadata is cached in memory. JavaScript memory is garbage-collected,
 not a secure zeroization facility. Settings can reveal local directory names and
-are saved under the app's normal user-data directory.
+are saved under the app's normal user-data directory. Explicit price updates
+also persist a normalized **public model-price catalog** there; daily usage and
+cost aggregates remain memory-only.
 
 The installed app enables login startup by default. This writes only its own
 native macOS/Windows login item or Linux XDG autostart entry; Settings can remove
@@ -44,6 +46,19 @@ ordinary runtime/cache files in its profile; "no usage persistence" does not mea
 "no disk writes anywhere."
 
 ## Networking and authentication
+
+**Stats → Update prices** separately authorizes a public request to the fixed
+`https://models.dev/api.json` endpoint. It carries no credentials, prompts,
+usage, model selection, or account IDs. Node fetch rejects redirects, times out
+after 15 seconds, and bounds response buffering at 16 MiB. Only known numeric
+rates/context tiers are accepted; cached catalogs are bounded at 8 MiB and must
+identify the same fixed source. Errors preserve the previous catalog. There is
+no automatic pricing request, and demo mode cannot start one. This permission
+does not enable authenticated provider quota checks.
+
+The renderer can request only a finite bounded content height, clamped by the
+host to the display work area. It cannot send arbitrary window options or
+position instructions. All new IPC still requires the exact trusted main frame.
 
 Network quota checks default off. Opting in authorizes direct HTTPS calls to:
 

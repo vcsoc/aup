@@ -23,9 +23,13 @@ Or explore without reading credentials, histories, or processes:
 npm run demo
 ```
 
-The compact **420 × 670** window uses thin, full-width stacked agent rows and a
-locally bundled **JetBrains Mono** font throughout the app UI. Refresh is an icon
-beside Settings (hover for its tooltip); details expand with each row's **+**.
+The compact **420px-wide** window fits its height to the content, eliminating
+unused space below the footer. It grows/shrinks with filters, details, and views,
+up to the display's usable height; longer content scrolls. Maximized/fullscreen
+windows are left alone. Thin full-width rows use larger **JetBrains Mono** text,
+wide activity charts, and consistent token/CPU/RAM colors. Empty quota/status
+rows are folded into the centered heading. Refresh is an icon beside Settings;
+details expand with **+**, and today's cost appears next to each provider name.
 
 The panel opens immediately, with a robot icon in the menu bar / system tray.
 Click it to show or hide the panel; right-click for Open, Refresh, and Quit.
@@ -89,6 +93,40 @@ These are retained local-history estimates, **not subscription quota, unique
 words, billed spend, or an account-level ledger**. Provider quota percentages
 come from separate opt-in checks. Using the same subscription does not itself
 mean two logged requests are duplicates.
+
+### Stats and model costs
+
+Switch **Live → Stats** for **Providers** and **Days** tabs. The default range is
+the complete current **Monday–Sunday** week. **‹ / ›** shift both selected dates
+by seven calendar days; **This week** resets them. Choose inclusive **From/To**
+dates or filter to one provider. Native history covers all retained sessions,
+not only the seven-day live chart. Imported aggregates may only expose seven
+days; unavailable history is not reconstructed. Invalid/reversed ranges are
+flagged; custom ranges are limited to ten years.
+
+![Date-range provider totals in demo mode](docs/stats.png)
+
+- Costs are **USD**: recorded per-request cost is preferred (including an explicit
+  zero), otherwise an exact provider/model match uses current **models.dev**
+  list prices. Input, output, cache reads, cache creation, and published context
+  tiers are priced separately, without adding reasoning/cache tokens twice.
+- These are recorded/estimated usage costs, **not your flat subscription bill or
+  additional charges**. Historical estimates use the current catalog, not
+  reconstructed historical prices. Discounts, service tiers, non-text pricing,
+  and provider invoices can differ.
+- **≈** marks live list-price estimates. **+** means known cost plus unpriced
+  usage; **—** means unknown, never an invented zero. Hover or expand Details
+  for coverage/source information. Partial-file warnings also appear in Stats.
+- The offline catalog bundles **8,355 model prices**, fetched **2026-10-14**.
+  **Stats → Update prices** explicitly downloads a new public catalog from
+  `https://models.dev/api.json`. It sends **no credentials, prompts, usage, or
+  account identifiers**, rejects redirects, and has time/size limits. There is
+  no automatic pricing network request. This action is independent of provider
+  quota opt-in and has a one-minute cooldown; demo mode disables it.
+- Successful refreshes cache normalized public prices at `model-prices.json`
+  beside settings and reprice cached native events. Failures keep prior prices.
+  To refresh the bundled baseline when building: `npm run prices:update`, then
+  rebuild the app. [Catalog provenance/license](THIRD_PARTY_NOTICES.md).
 
 ### Credentials and paths
 
@@ -212,14 +250,16 @@ installers. A local repository has no hosted CI until you push it to a remote.
   prevent runaway scans and surface partial-total warnings. Missing homes are
   normal; unreadable or oversized sessions are reported.
 - No telemetry, analytics, cloud account, local HTTP server, or persisted usage
-  database. The app writes settings atomically with private POSIX permissions
-  (Windows inherits the profile ACL), and manages its own OS login/startup entry.
+  database. The app writes settings and explicitly refreshed public model prices
+  atomically with private POSIX permissions (Windows inherits the profile ACL),
+  and manages its own OS login/startup entry.
   Linux uses `$XDG_CONFIG_HOME/autostart/io.agentusage.panel.desktop` (or
   `~/.config/autostart/`); opt-out removes only this app's entry.
 - Process command lines and transcript content are transient input. Only token
   metadata and aggregated metrics reach the renderer; credentials are neither
   displayed, logged, nor stored by this app.
-- Network requests are made only after opt-in, to fixed HTTPS provider hosts.
+- Provider network requests are made only after opt-in, to fixed HTTPS hosts.
+  Public model prices are downloaded only when you explicitly choose Update prices.
   Direct quota HTTP calls reject redirects, enforce time/size limits, and retain
   stale results only for the same credential fingerprint. Codex uses its own
   CLI network/auth machinery. See [security details](docs/SECURITY.md).
@@ -236,7 +276,8 @@ Linux CI runs smoke tests under `xvfb-run`. Tests use temporary fixtures rather
 than your real accounts, and never need provider API keys. UI screenshots are
 written to `.test-results/`. To test an unpacked/installed binary instead of the
 development app, set `AUP_EXECUTABLE` to its executable when running
-`node scripts/smoke.mjs` and `node scripts/host-smoke.mjs`.
+`node scripts/smoke.mjs`, `node scripts/host-smoke.mjs`, and
+`node scripts/startup-smoke.mjs`.
 
 See [architecture](docs/ARCHITECTURE.md) and [verification evidence](docs/VERIFICATION.md)
 for what was actually executed locally versus configured for other platforms.

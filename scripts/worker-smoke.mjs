@@ -13,7 +13,7 @@ try {
   await writeFile(path.join(settings.paths.claude, 'projects', 'test', 's.jsonl'), JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), requestId: 'request', sessionId: 'session', message: { id: 'message', model: 'fixture-model', usage: { input_tokens: 10, output_tokens: 20 } } }) + '\n');
   for (const provider of ['codex', 'pi']) await mkdir(path.join(settings.paths[provider], 'sessions'), { recursive: true });
   const timestamp = new Date().toISOString();
-  const pi = { type: 'message', id: 'entry', timestamp, message: { role: 'assistant', provider: 'openai-codex', responseId: 'private-response-id', usage: { input: 10, output: 20, cacheRead: 70 } } };
+  const pi = { type: 'message', id: 'entry', timestamp, message: { role: 'assistant', provider: 'openai-codex', responseId: 'private-response-id', usage: { input: 10, output: 20, cacheRead: 70, cost: { total: 0.25 } } } };
   await writeFile(path.join(settings.paths.pi, 'sessions', 'session.jsonl'), JSON.stringify(pi) + '\n');
   await writeFile(path.join(settings.paths.pi, 'sessions', 'copied-session.jsonl'), JSON.stringify(pi) + '\n');
   await writeFile(path.join(settings.paths.codex, 'sessions', 'native.jsonl'), JSON.stringify({ type: 'event_msg', timestamp, payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 180, output_tokens: 20, cached_input_tokens: 150 }, total_token_usage: { total_tokens: 200 } } } }) + '\n');
@@ -31,6 +31,10 @@ try {
   assert.equal(state.agents.find(agent => agent.id === 'codex').usage.todayTokens, 300);
   assert.equal(state.agents.find(agent => agent.id === 'codex').usage.todayCachedTokens, 220);
   assert.deepEqual(state.agents.find(agent => agent.id === 'codex').usage.sources, { 'Codex CLI': 200, 'Pi (OpenAI Codex)': 100 });
+  assert.equal(state.agents.find(agent => agent.id === 'codex').usage.todayCost.usd, 0.25);
+  assert.equal(state.agents.find(agent => agent.id === 'codex').usage.todayCost.knownTokens, 100);
+  assert.equal(state.agents.find(agent => agent.id === 'codex').usage.history.length, 1);
+  assert.ok(state.pricing.models > 100);
   assert.equal(state.agents.find(agent => agent.id === 'pi').usage.todayTokens, 0);
   assert.match(state.agents.find(agent => agent.id === 'pi').usageNote, /included in Codex/);
   assert.equal(JSON.stringify(state).includes('private-response-id'), false);

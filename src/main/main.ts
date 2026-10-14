@@ -14,7 +14,7 @@ const root = app.getAppPath();
 const page = pathToFileURL(path.join(root, 'dist', 'renderer', 'index.html')).href;
 let window: BrowserWindow | null = null; let tray: Tray | null = null; let worker: Worker | null = null;
 let quitting = false; let settings = defaultSettings(); let settingsWarning = ''; let settingsFile = '';
-let restarts = 0; let lastRefresh = 0;
+let restarts = 0; let lastRefresh = 0; let lastPriceRefresh = 0;
 let startup: StartupResult = { supported: false };
 let launchedAtLogin = process.argv.includes('--startup');
 async function applyStartup(): Promise<void> {
@@ -82,7 +82,7 @@ function publish(): void {
   window?.webContents.send('panel:update', snapshot); updateTray();
 }
 function startWorker(): void {
-  worker = new Worker(new URL('./worker.js', import.meta.url), { workerData: { settings } });
+  worker = new Worker(new URL('./worker.js', import.meta.url), { workerData: { settings, pricingFile: path.join(app.getPath('userData'), 'model-prices.json') } });
   worker.on('message', (snapshot: Snapshot) => { state = snapshot; publish(); });
   worker.on('error', () => {
     state = { ...state, scanning: false, errors: ['The monitoring worker stopped. Restarting (up to three attempts); restart the app if this persists.'] }; publish();
@@ -100,7 +100,7 @@ function handle(channel: string, action: (input?: unknown) => unknown): void {
 }
 function createWindow(): void {
   window = new BrowserWindow({
-    width: 420, height: 670, minWidth: 360, minHeight: 360, show: false,
+    width: 420, height: 550, minWidth: 360, minHeight: 160, show: false,
     title: 'Agent Usage Panel', backgroundColor: '#141919',
     webPreferences: { preload: path.join(root, 'assets', 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
   });
@@ -136,6 +136,21 @@ else {
       settingsWarning = ''; alerted.clear(); worker?.postMessage({ type: 'settings', settings }); publish(); return settings;
     });
     handle('panel:refresh', () => { if (Date.now() - lastRefresh >= 5000) { lastRefresh = Date.now(); worker?.postMessage({ type: 'refresh' }); } });
+    handle('panel:refresh-prices', () => {
+      if (demo) return;
+      if (Date.now() - lastPriceRefresh < 60000) throw new Error('Wait one minute between model-price updates.');
+      lastPriceRefresh = Date.now(); worker?.postMessage({ type: 'prices' });
+    });
+    handle('panel:fit-content', height => {
+      if (typeof height !== 'number' || !Number.isFinite(height) || height < 1 || height > 20000) throw new Error('Invalid content height');
+      if (!window || window.isMaximized() || window.isFullScreen()) return;
+      const bounds = window.getBounds(), content = window.getContentBounds();
+      const area = screen.getDisplayMatching(bounds).workArea;
+      const target = Math.max(160, Math.min(Math.ceil(height), area.height - (bounds.height - content.height)));
+      if (Math.abs(content.height - target) > 1) window.setContentSize(content.width, target);
+      const updated = window.getBounds();
+      if (updated.y + updated.height > area.y + area.height) window.setPosition(updated.x, Math.max(area.y, area.y + area.height - updated.height));
+    });
     handle('panel:hide', () => window?.hide());
     handle('panel:quit', () => app.quit());
     createWindow();

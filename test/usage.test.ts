@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { localDay, recentDays, summarize, parseSession, UsageScanner, type Event } from '../src/main/usage.js';
 import { defaultSettings } from '../src/main/settings.js';
+import { normalizePricingData } from '../src/main/pricing.js';
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 async function temp(): Promise<string> { const root = await mkdtemp(path.join(os.tmpdir(), 'aup-test-')); roots.push(root); return root; }
@@ -94,6 +95,36 @@ describe('aggregation', () => {
   });
 });
 describe('scanner cache', () => {
+  it('does not price omitted required input/output fields as zero', async () => {
+    const models = { gpt: { cost: { input: 2, output: 10, cache_read: 0.2 } } }; const catalog = normalizePricingData({ openai: { models }, anthropic: { models } });
+    const fixtures = [
+      { provider: 'codex' as const, rows: [{ type: 'turn_context', payload: { model: 'gpt' } }, { type: 'event_msg', timestamp: time, payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 100, cached_input_tokens: 0 }, total_token_usage: { total_tokens: 100 } } } }] },
+      { provider: 'claude' as const, rows: [{ type: 'assistant', timestamp: time, message: { id: 'a', model: 'gpt', usage: { input_tokens: 100 } } }] },
+      { provider: 'pi' as const, rows: [{ type: 'message', id: 'b', timestamp: time, message: { role: 'assistant', provider: 'openai', model: 'gpt', usage: { input: 100 } } }] },
+    ];
+    for (const item of fixtures) {
+      const usage = summarize(await parseSession(await fixture(item.rows), item.provider), new Date(time), catalog);
+      expect(usage.todayTokens).toBe(100); expect(usage.todayCost?.unpricedTokens).toBe(100);
+    }
+  });
+  it('preserves per-day recorded cost and deduplicates it with a copied Pi response', async () => {
+    const row = { type: 'message', id: 'entry', timestamp: time, message: { role: 'assistant', provider: 'openai-codex', responseId: 'response', model: 'gpt', content: 'PRIVATE-COST-CONTENT', usage: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, cost: { total: 0.12 } } } };
+    const first = await parseSession(await fixture([row]), 'pi'), copy = await parseSession(await fixture([row]), 'pi');
+    const usage = summarize([...first, ...copy], new Date(time));
+    expect(usage.todayTokens).toBe(100); expect(usage.todayCost?.usd).toBe(0.12); expect(usage.todayCost?.recorded).toBe(true);
+    expect(usage.history).toHaveLength(1); expect(usage.history?.[0].cost.usd).toBe(0.12);
+    expect(JSON.stringify(usage)).not.toContain('PRIVATE-COST-CONTENT');
+  });
+  it('reprices cached native files and retains older history beyond the chart window', async () => {
+    const settings = defaultSettings({}, await temp()); const dir = path.join(settings.paths.codex, 'sessions'); await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'native.jsonl'), [{ type: 'turn_context', payload: { model: 'gpt' } }, codex(), { ...codex(200), timestamp: '2026-09-01T12:00:00Z' }].map(row => JSON.stringify(row)).join('\n') + '\n');
+    const catalog = (input: number) => normalizePricingData({ openai: { models: { gpt: { cost: { input, output: 10, cache_read: 0.2 } } } } });
+    const scanner = new UsageScanner(); const first = await scanner.scan(settings, new Date(time), catalog(2)); const second = await scanner.scan(settings, new Date(time), catalog(4));
+    expect(first.usage.codex?.history).toHaveLength(2); expect(first.usage.codex?.days).toHaveLength(7);
+    expect(first.usage.codex?.history?.[0].date).toBe(localDay('2026-09-01T12:00:00Z'));
+    expect(second.usage.codex?.todayTokens).toBe(100); expect(second.usage.codex?.todayCost!.usd).toBeGreaterThan(first.usage.codex?.todayCost!.usd || 0);
+    expect(second.usage.codex?.todayCost?.unpricedTokens).toBe(0);
+  });
   it('attributes Pi OAuth usage to Codex once, without merging generic OpenAI or other Pi providers', async () => {
     const settings = defaultSettings({}, await temp());
     for (const provider of ['pi', 'codex'] as const) await mkdir(path.join(settings.paths[provider], 'sessions'), { recursive: true });

@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('panel', Object.freeze({
   settings: () => ipcRenderer.invoke('panel:settings'),
   saveSettings: settings => ipcRenderer.invoke('panel:save-settings', settings),
   refresh: () => ipcRenderer.invoke('panel:refresh'),
+  refreshPrices: () => ipcRenderer.invoke('panel:refresh-prices'),
+  fitContent: height => ipcRenderer.invoke('panel:fit-content', height),
   info: () => ipcRenderer.invoke('panel:info'),
   hide: () => ipcRenderer.invoke('panel:hide'),
   quit: () => ipcRenderer.invoke('panel:quit'),

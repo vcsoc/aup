@@ -1,6 +1,7 @@
 import './style.css';
-import { providerIds, names, type Agent, type PanelAPI, type Settings, type Snapshot } from '../shared/types';
+import { providerIds, names, type Agent, type PanelAPI, type Settings, type Snapshot, type CostSummary } from '../shared/types';
 import { tokenTotals } from '../shared/usage';
+import { costLabel, rangeError, rangeStats, shiftRange, unknownCost, weekRange } from '../shared/stats';
 declare global { interface Window { panel: PanelAPI } }
 const api = window.panel;
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -8,6 +9,8 @@ const dialog = document.querySelector<HTMLDialogElement>('#settings-dialog')!;
 let snapshot: Snapshot; let settings: Settings;
 let filter: 'all' | 'running' | 'attention' = 'all';
 let refreshing = false; let expanded = new Set<string>();
+let view: 'live' | 'stats' = 'live'; let statsMode: 'providers' | 'days' = 'providers';
+let range = weekRange(); let statsProvider = 'all'; let priceRequest = false; let priceError = '';
 const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const compact = (n: number) => new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 const memory = (n: number) => n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;
@@ -21,21 +24,48 @@ function reset(time: string): string {
 const urgent = (agent: Agent) => agent.stale || agent.warnings.length > 0 || agent.limits.some(limit => limit.percent * 100 >= settings.threshold);
 const robot = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="7" width="16" height="13" rx="4" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v4M1 12v4M23 12v4M8 13v2M16 13v2M9 18h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 const glyphs: Record<string, string> = { claude: '✳', codex: '⌘', grok: '𝕏', kimi: 'K', fireworks: '✷', pi: 'π' };
+function costDescription(cost: CostSummary): string {
+  const basis = [cost.recorded ? 'recorded usage cost' : '', cost.estimated ? 'current list-price estimate' : ''].filter(Boolean).join(' + ') || (cost.unpricedTokens ? 'price unavailable' : 'no recorded usage');
+  return `USD · ${basis}${cost.unpricedTokens ? ` · ${compact(cost.unpricedTokens)} tokens unpriced; total is incomplete` : ''}. Not your subscription bill.`;
+}
+function statsView(): string {
+  const error = rangeError(range);
+  const stats = rangeStats(snapshot.agents, range, statsProvider);
+  const total = stats.total;
+  const warnings = [...new Set(snapshot.agents.filter(agent => statsProvider === 'all' || agent.id === statsProvider).flatMap(agent => agent.warnings))];
+  const tabs = `<div class="stats-tabs" role="tablist" aria-label="Statistics breakdown">${(['providers', 'days'] as const).map(mode => `<button role="tab" id="stats-${mode}" data-stats-mode="${mode}" aria-selected="${statsMode === mode}" aria-controls="stats-table" tabindex="${statsMode === mode ? 0 : -1}">${mode === 'providers' ? 'Providers' : 'Days'}</button>`).join('')}</div>`;
+  const row = (item: typeof total) => `<tr>${statsMode === 'days' ? `<td>${escape(item.date)}</td>` : ''}<th scope="row">${escape(item.name)}</th><td title="Processed tokens, including cached reads">${compact(item.tokens)}</td>${statsMode === 'providers' ? `<td>${item.cachedTokens === undefined ? '—' : compact(item.tokens - item.cachedTokens)}</td>` : ''}<td class="cost-value" title="${escape(costDescription(item.cost))}">${costLabel(item.cost)}</td></tr>`;
+  return `<section id="stats-panel" role="tabpanel" aria-labelledby="view-stats">
+    <div class="range-nav"><strong>Usage history</strong><div><button id="previous-week" aria-label="Previous week" title="Move both dates back seven days">‹</button><button id="current-week">This week</button><button id="next-week" aria-label="Next week" title="Move both dates forward seven days">›</button></div></div>
+    <div class="date-fields"><label>From<input type="date" id="stats-from" value="${escape(range.from)}" required></label><label>To<input type="date" id="stats-to" value="${escape(range.to)}" required></label></div>
+    ${error ? `<p class="warning" role="alert">${escape(error)}</p>` : `<section class="summary-grid stats-summary" aria-label="Selected range totals"><div class="summary-cell metric-tokens"><span>Processed</span><strong>${compact(total.tokens)}</strong></div><div class="summary-cell metric-tokens"><span>Uncached</span><strong>${total.cachedTokens === undefined ? '—' : compact(total.tokens - total.cachedTokens)}</strong></div><div class="summary-cell cost-value" title="${escape(costDescription(total.cost))}"><span>Cost · USD</span><strong>${costLabel(total.cost)}</strong></div></section>`}
+    <div class="stats-controls">${tabs}<label class="sr-only" for="stats-provider">Provider</label><select id="stats-provider" aria-label="Provider"><option value="all">All providers</option>${snapshot.agents.map(agent => `<option value="${escape(agent.id)}" ${statsProvider === agent.id ? 'selected' : ''}>${escape(agent.name)}</option>`).join('')}</select></div>
+    <div class="stats-scroll" id="stats-table" tabindex="0" role="tabpanel" aria-labelledby="stats-${statsMode}"><table><caption class="sr-only">${statsMode === 'providers' ? 'Provider totals' : 'Daily provider totals'} from ${escape(range.from)} through ${escape(range.to)}</caption><thead><tr>${statsMode === 'days' ? '<th scope="col">Date</th>' : ''}<th scope="col">Provider</th><th scope="col">Tokens</th>${statsMode === 'providers' ? '<th scope="col">Uncached</th>' : ''}<th scope="col">Cost USD</th></tr></thead><tbody>${(statsMode === 'providers' ? stats.providers : stats.days).map(row).join('') || `<tr><td colspan="4">${error ? 'Correct the dates to see totals.' : 'No retained usage in this range.'}</td></tr>`}</tbody><tfoot><tr>${statsMode === 'days' ? '<td></td>' : ''}<th scope="row">Total</th><td>${compact(total.tokens)}</td>${statsMode === 'providers' ? `<td>${total.cachedTokens === undefined ? '—' : compact(total.tokens - total.cachedTokens)}</td>` : ''}<td title="${escape(costDescription(total.cost))}">${costLabel(total.cost)}</td></tr></tfoot></table></div>
+    <p class="stats-note">Inclusive local dates · full week = Mon–Sun. Tokens include cache reads. Costs use recorded USD where available, otherwise current model list prices—not additional subscription charges.</p>
+    ${warnings.length ? `<p class="warning" role="status">Partial history: ${warnings.map(escape).join(' ')}</p>` : ''}
+    ${total.cost.unpricedTokens ? `<p class="warning">${compact(total.cost.unpricedTokens)} tokens have no usable price or breakdown. “+” means a partial cost; “—” means unknown.</p>` : ''}
+    <p class="stats-note">Retained local history only. Missing/oversized files are partial; imported records may expose only seven days. No history is invented for missing dates.</p>
+    <div class="pricing-footer"><span>models.dev · ${snapshot.pricing?.fetchedAt ? escape(new Date(snapshot.pricing.fetchedAt).toLocaleDateString()) : 'no catalog'} · ${compact(snapshot.pricing?.models || 0)} models</span><button id="update-prices" ${snapshot.demo || priceRequest || snapshot.pricing?.updating ? 'disabled' : ''} title="Fetch public model prices from models.dev; no credentials or usage are sent">${priceRequest || snapshot.pricing?.updating ? 'Updating…' : 'Update prices'}</button></div>
+    ${priceError || snapshot.pricing?.error ? `<p class="warning" role="status">${escape(priceError || snapshot.pricing?.error)}</p>` : ''}
+  </section>`;
+}
 function card(agent: Agent): string {
   const running = agent.resources.processes > 0;
   const tokens = tokenTotals([agent.usage]);
   const tokenLabel = tokens.uncached === undefined ? 'Today' : 'Uncached';
   const tokenTitle = tokens.uncached === undefined ? 'Processed tokens today; cache breakdown unavailable' : `${compact(tokens.uncached)} uncached + ${compact(tokens.cached!)} cached input = ${compact(tokens.processed)} processed today. Not subscription quota.`;
   const isUrgent = urgent(agent);
+  const cost = agent.usage.todayCost || unknownCost(agent.usage.todayTokens);
   const max = Math.max(0, ...agent.usage.days.map(day => day.tokens));
   const models = Object.entries(agent.usage.models).sort((a, b) => b[1] - a[1]).slice(0, 8);
   return `<article class="agent-card ${agent.stale ? 'stale' : ''}" data-agent="${escape(agent.id)}">
     <div class="agent-heading">
       <div class="agent-mark mark-${escape(agent.id.split('/')[0])}" aria-hidden="true">${glyphs[agent.id.split('/')[0]] || '◈'}</div>
-      <div class="agent-identity"><h2 title="${escape(agent.name)}">${escape(agent.name)}</h2>${agent.plan ? `<span title="${escape(agent.plan)}">${escape(agent.plan)}</span>` : ''}</div>
+      <div class="agent-identity"><h2 title="${escape(agent.name)}${agent.plan ? ` · ${escape(agent.plan)}` : ''}">${escape(agent.name)}</h2><span class="agent-cost" aria-label="Today's cost ${costLabel(cost)}" title="Today's cost: ${escape(costDescription(cost))}">${cost.estimated ? '≈' : ''}${costLabel(cost)}</span></div>
+      <span class="quota-inline" title="${escape(agent.usageNote || agent.quotaStatus)}">${!agent.limits.length && !agent.balance ? (agent.usageNote ? 'Usage ↗ Codex' : escape(agent.quotaStatus)) : escape(agent.plan)}</span>
       <span class="status-pill ${running ? 'running' : ''}">${running ? '<i></i> Running' : 'Idle'}</span>
     </div>
-    <div class="quota-area">
+    ${agent.limits.length || agent.balance ? '<div class="quota-area">' : ''}
       ${agent.limits.map(limit => {
         const percent = Math.round(limit.percent * 100); const high = percent >= settings.threshold;
         return `<div class="quota-row ${high ? 'high' : ''}" title="${escape(limit.label)}: ${percent}% used · ${escape(reset(limit.resetsAt))}${agent.stale ? ' · stale' : ''}">
@@ -44,14 +74,13 @@ function card(agent: Agent): string {
         <strong class="quota-percent">${percent}%</strong><span class="quota-reset" title="${escape(limit.resetsAt)}">${escape(reset(limit.resetsAt))}</span></div>`;
       }).join('')}
       ${agent.balance ? `<div class="balance"><span>${agent.balance.estimated ? 'Estimated credit' : 'Remaining credit'}</span><strong>${escape(agent.balance.currency)} ${agent.balance.remaining.toFixed(2)}</strong></div>` : ''}
-      ${!agent.limits.length && !agent.balance ? `<p class="no-quota" title="${escape(agent.usageNote || agent.quotaStatus)}">${agent.usageNote ? 'OpenAI usage ↗ Codex · harness metrics below' : escape(agent.quotaStatus)}</p>` : ''}
-    </div>
+    ${agent.limits.length || agent.balance ? '</div>' : ''}
     ${agent.stale ? `<p class="quota-status warning" title="${escape(agent.quotaStatus)}">Stale quota · ${age(agent.quotaAt)}</p>` : ''}
-    <div class="agent-stats"><div class="daily-tokens" title="${escape(tokenTitle)}"><span>${agent.usageNote && !tokens.processed ? 'Usage' : tokenLabel}</span><strong>${agent.usageNote && !tokens.processed ? '↗ Codex' : compact(tokens.uncached ?? tokens.processed)}</strong></div>
+    <div class="agent-stats"><div class="daily-tokens metric-tokens" title="${escape(tokenTitle)}"><span>${agent.usageNote && !tokens.processed ? 'Usage' : tokenLabel}</span><strong>${agent.usageNote && !tokens.processed ? '↗ Codex' : compact(tokens.uncached ?? tokens.processed)}</strong></div>
     <div class="spark" aria-label="Processed tokens including cache reads over the last seven days">${agent.usage.days.map(day => `<span style="height:${max ? Math.max(4, day.tokens / max * 100) : 4}%" title="${escape(day.date)}: ${compact(day.tokens)} tokens"></span>`).join('')}</div>
-    <div class="resource-inline" title="Agent processes and descendants; CPU is machine capacity, RAM is summed resident memory"><strong>${agent.resources.cpu.toFixed(1)}<small>% CPU</small></strong><span>${memory(agent.resources.memory)} RAM</span></div></div>
+    <div class="resource-inline" title="Agent processes and descendants; CPU is machine capacity, RAM is summed resident memory"><strong class="metric-cpu">${agent.resources.cpu.toFixed(1)}<small>% CPU</small></strong><span class="metric-ram">${memory(agent.resources.memory)} RAM</span></div></div>
     <details data-details="${escape(agent.id)}" ${expanded.has(agent.id) ? 'open' : ''}><summary title="Details for ${escape(agent.name)}">${isUrgent ? '<span class="attention-dot"></span>' : ''}<span class="sr-only">Details for ${escape(agent.name)}</span><span class="detail-toggle" aria-hidden="true">＋</span></summary>
-      <div class="detail-content"><p class="quota-detail ${agent.stale ? 'warning' : ''}">${escape(agent.quotaStatus)} · ${age(agent.quotaAt)}</p>${agent.usageNote ? `<p class="detail-note">${escape(agent.usageNote)}</p>` : ''}<dl><dt>Processed today</dt><dd>${compact(tokens.processed)}</dd><dt>Cached input today</dt><dd>${tokens.cached === undefined ? 'Unknown' : compact(tokens.cached)}</dd><dt>Uncached today</dt><dd>${tokens.uncached === undefined ? 'Unknown' : compact(tokens.uncached)}</dd><dt>Recorded tokens</dt><dd>${compact(agent.usage.totalTokens)}</dd><dt>Prompts today</dt><dd>${agent.usage.prompts}</dd><dt>Recorded sessions</dt><dd>${agent.usage.sessions}</dd><dt>Active processes</dt><dd>${agent.resources.processes}</dd><dt>Data source</dt><dd>${escape(agent.source)}</dd></dl>
+      <div class="detail-content"><p class="quota-detail ${agent.stale ? 'warning' : ''}">${escape(agent.quotaStatus)} · ${age(agent.quotaAt)}</p>${agent.usageNote ? `<p class="detail-note">${escape(agent.usageNote)}</p>` : ''}<dl><dt>Cost today · USD</dt><dd title="${escape(costDescription(cost))}">${costLabel(cost)}</dd><dt>Recorded cost component</dt><dd>${cost.recorded ? 'Included' : 'None'}</dd><dt>List-price estimates</dt><dd>${cost.estimated ? 'Included' : 'None'}</dd><dt>Unpriced tokens today</dt><dd>${compact(cost.unpricedTokens)}</dd><dt>Plan</dt><dd>${escape(agent.plan || 'Unknown')}</dd><dt>Processed today</dt><dd>${compact(tokens.processed)}</dd><dt>Cached input today</dt><dd>${tokens.cached === undefined ? 'Unknown' : compact(tokens.cached)}</dd><dt>Uncached today</dt><dd>${tokens.uncached === undefined ? 'Unknown' : compact(tokens.uncached)}</dd><dt>Recorded tokens</dt><dd>${compact(agent.usage.totalTokens)}</dd><dt>Prompts today</dt><dd>${agent.usage.prompts}</dd><dt>Recorded sessions</dt><dd>${agent.usage.sessions}</dd><dt>Active processes</dt><dd>${agent.resources.processes}</dd><dt>Data source</dt><dd>${escape(agent.source)}</dd></dl>
       ${Object.keys(agent.usage.sources || {}).length ? `<h3>Today's sources · processed tokens</h3>${Object.entries(agent.usage.sources!).map(([source, count]) => `<div class="model-row"><span>${escape(source)}</span><strong>${compact(count)}</strong></div>`).join('')}` : ''}
       ${models.length ? `<h3>Models · recorded tokens</h3>${models.map(([model, tokens]) => `<div class="model-row"><span>${escape(model)}</span><strong>${compact(tokens)}</strong></div>`).join('')}` : ''}
       ${agent.warnings.map(warning => `<p class="warning">${escape(warning)}</p>`).join('')}
@@ -66,17 +95,18 @@ function render(): void {
   const tokens = tokenTotals(snapshot.agents.map(agent => agent.usage));
   const tokenTitle = tokens.uncached === undefined ? `${compact(tokens.processed)} processed today; cache breakdown unavailable for one or more sources` : `${compact(tokens.uncached)} uncached + ${compact(tokens.cached!)} cached input = ${compact(tokens.processed)} processed today. Not subscription quota.`;
   const agents = snapshot.agents.filter(agent => filter === 'all' || (filter === 'running' ? agent.resources.processes > 0 : urgent(agent)));
+  if (statsProvider !== 'all' && !snapshot.agents.some(agent => agent.id === statsProvider)) statsProvider = 'all';
   app.innerHTML = `<header class="topbar"><a class="brand" href="#" aria-label="Agent Usage Panel home"><span class="brand-icon">${robot}</span><span>agent usage<span class="brand-suffix"> / panel</span></span></a>
     ${snapshot.demo ? '<span class="demo-badge" title="Sample data only. No credentials, histories, or processes are read.">DEMO MODE</span>' : ''}
     <div class="header-actions"><button id="refresh" class="icon-button" aria-label="Refresh usage" title="${snapshot.scanning ? 'Checking usage…' : 'Refresh usage (R)'}" aria-busy="${snapshot.scanning}" ${refreshing || snapshot.scanning ? 'disabled' : ''}><svg class="${snapshot.scanning ? 'spin' : ''}" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M16 8a6.2 6.2 0 1 0 .1 4M16 3v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <button id="settings" class="icon-button" aria-label="Settings" title="Settings">⚙</button></div></header>
     <main><h1 class="sr-only">Agent Usage Panel</h1>
     ${snapshot.errors.map(error => `<div class="notice" role="status">${escape(error)}</div>`).join('')}
-    <section class="summary-grid" aria-label="Usage summary"><div class="summary-cell" title="${escape(tokenTitle)}"><span>${tokens.uncached === undefined ? 'Processed today' : 'Uncached today'}</span><strong>${compact(tokens.uncached ?? tokens.processed)}</strong>${tokens.cached === undefined ? '<small>cache unknown</small>' : ''}</div>
-    <div class="summary-cell" title="${settings.processEnabled ? `${totals.processes} active agent processes · whole-machine CPU capacity` : 'Process monitoring disabled'}"><span>CPU</span><strong>${settings.processEnabled ? totals.cpu.toFixed(1) + '%' : '—'}</strong></div>
-    <div class="summary-cell" title="Summed resident memory, not GPU"><span>RAM</span><strong>${settings.processEnabled ? memory(totals.memory) : '—'}</strong></div></section>
-    <div class="section-toolbar"><div class="filters" role="group" aria-label="Filter agents">${(['all', 'running', 'attention'] as const).map(key => `<button id="filter-${key}" data-filter="${key}" class="${filter === key ? 'selected' : ''}" aria-pressed="${filter === key}">${key === 'all' ? 'All agents' : key === 'running' ? 'Running' : 'Needs attention'}${key === 'all' ? `<span>${snapshot.agents.length}</span>` : ''}</button>`).join('')}</div><span class="live-label"><i></i> ${snapshot.demo ? 'Preview' : 'On-device'}</span></div>
-    <section class="agent-grid" aria-label="Agents">${agents.map(card).join('') || '<div class="empty-state"><span>✓</span><h2>Nothing here right now.</h2><p>Choose All agents to see every provider.</p></div>'}</section>
+    ${view === 'live' ? `<section class="summary-grid" aria-label="Usage summary"><div class="summary-cell metric-tokens" title="${escape(tokenTitle)}"><span>${tokens.uncached === undefined ? 'Processed today' : 'Uncached today'}</span><strong>${compact(tokens.uncached ?? tokens.processed)}</strong>${tokens.cached === undefined ? '<small>cache unknown</small>' : ''}</div>
+    <div class="summary-cell metric-cpu" title="${settings.processEnabled ? `${totals.processes} active agent processes · whole-machine CPU capacity` : 'Process monitoring disabled'}"><span>CPU</span><strong>${settings.processEnabled ? totals.cpu.toFixed(1) + '%' : '—'}</strong></div>
+    <div class="summary-cell metric-ram" title="Summed resident memory, not GPU"><span>RAM</span><strong>${settings.processEnabled ? memory(totals.memory) : '—'}</strong></div></section>` : ''}
+    <div class="section-toolbar">${view === 'live' ? `<div class="filters" role="group" aria-label="Filter agents">${(['all', 'running', 'attention'] as const).map(key => `<button id="filter-${key}" data-filter="${key}" ${key === 'attention' ? 'aria-label="Needs attention" title="Needs attention"' : ''} class="${filter === key ? 'selected' : ''}" aria-pressed="${filter === key}">${key === 'all' ? 'All agents' : key === 'running' ? 'Running' : 'Attention'}${key === 'all' ? `<span>${snapshot.agents.length}</span>` : ''}</button>`).join('')}</div>` : '<span class="stats-heading">Statistics</span>'}<div class="view-tabs" role="tablist" aria-label="Panel views">${(['live', 'stats'] as const).map(tab => `<button role="tab" id="view-${tab}" data-view="${tab}" aria-selected="${view === tab}" aria-controls="${tab}-panel" tabindex="${view === tab ? 0 : -1}">${tab === 'live' ? 'Live' : 'Stats'}</button>`).join('')}</div></div>
+    ${view === 'stats' ? statsView() : `<section id="live-panel" class="agent-grid" role="tabpanel" aria-labelledby="view-live" aria-label="Agents">${agents.map(card).join('') || '<div class="empty-state"><span>✓</span><h2>Nothing here right now.</h2><p>Choose All agents to see every provider.</p></div>'}</section>`}
     <footer><div title="Close the window to keep monitoring in the menu bar or system tray."><span class="footer-dot"></span>${snapshot.demo ? 'Demo' : settings.processEnabled ? `Resources ${age(snapshot.resourceAt)}` : 'Monitoring off'} <span class="separator">/</span> Usage ${age(snapshot.updatedAt)}</div><button id="quit" title="Stop monitoring and quit">Quit app</button></footer>
     </main>`;
   if (focus) document.getElementById(focus)?.focus({ preventScroll: true });
@@ -122,7 +152,16 @@ async function openSettings(): Promise<void> {
 }
 app.addEventListener('click', async event => {
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, a'); if (!target) return;
-  if (target.classList.contains('brand')) { event.preventDefault(); filter = 'all'; render(); }
+  if (target.classList.contains('brand')) { event.preventDefault(); filter = 'all'; view = 'live'; render(); }
+  if (target.dataset.view) { view = target.dataset.view as typeof view; render(); }
+  if (target.dataset.statsMode) { statsMode = target.dataset.statsMode as typeof statsMode; render(); }
+  if (target.id === 'previous-week' || target.id === 'next-week') { range = shiftRange(range, target.id === 'previous-week' ? -7 : 7); render(); }
+  if (target.id === 'current-week') { range = weekRange(); render(); }
+  if (target.id === 'update-prices' && !priceRequest) {
+    priceRequest = true; priceError = ''; render();
+    try { await api.refreshPrices(); } catch { priceError = 'Could not start a price update. Wait a minute and retry.'; }
+    finally { priceRequest = false; render(); }
+  }
   if (target.dataset.filter) { filter = target.dataset.filter as typeof filter; render(); }
   if (target.id === 'settings') void openSettings();
   if (target.id === 'quit') void api.quit();
@@ -130,6 +169,27 @@ app.addEventListener('click', async event => {
     refreshing = true; render();
     try { await api.refresh(); } finally { setTimeout(() => { refreshing = false; render(); }, 1000); }
   }
+});
+app.addEventListener('change', event => {
+  const target = event.target as HTMLInputElement;
+  if (target.id === 'stats-from') range = { ...range, from: target.value };
+  else if (target.id === 'stats-to') range = { ...range, to: target.value };
+  else if (target.id === 'stats-provider') statsProvider = target.value;
+  else return;
+  render();
+});
+app.addEventListener('keydown', event => {
+  const target = event.target as HTMLElement;
+  if (target.getAttribute('role') !== 'tab' || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const tabs = Array.from(target.closest('[role=tablist]')!.querySelectorAll<HTMLButtonElement>('[role=tab]'));
+  const index = tabs.indexOf(target as HTMLButtonElement);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length;
+  event.preventDefault(); tabs[next].focus(); tabs[next].click();
+});
+const editingStats = () => (document.activeElement as HTMLElement)?.matches('#stats-from, #stats-to, #stats-provider');
+app.addEventListener('focusout', event => {
+  if (!(event.target as HTMLElement).matches('#stats-from, #stats-to, #stats-provider')) return;
+  setTimeout(() => { if (snapshot && !editingStats() && !dialog.open) render(); }, 0);
 });
 app.addEventListener('toggle', event => {
   const target = event.target as HTMLDetailsElement;
@@ -146,8 +206,13 @@ async function start(): Promise<void> {
   try {
     [snapshot, settings] = await Promise.all([api.snapshot(), api.settings()]);
     applyTheme(); render();
-    api.onSnapshot(value => { snapshot = value; render(); });
-    setInterval(() => { if (!dialog.open) render(); }, 30000);
+    api.onSnapshot(value => { snapshot = value; if (!editingStats()) render(); });
+    setInterval(() => { if (!dialog.open && !editingStats()) render(); }, 30000);
+    let fitTimer: ReturnType<typeof setTimeout>;
+    new ResizeObserver(() => {
+      clearTimeout(fitTimer);
+      fitTimer = setTimeout(() => { void api.fitContent(Math.min(20000, Math.ceil(app.getBoundingClientRect().height))).catch(() => {}); }, 30);
+    }).observe(app);
   } catch { app.textContent = 'The panel could not connect to its desktop host. Restart the app.'; }
 }
 void start();

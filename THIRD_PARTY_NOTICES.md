@@ -57,6 +57,19 @@ assets by Vite. No font service or network request is used.
 - License: SIL Open Font License 1.1, reproduced in
   `assets/fonts/JetBrainsMono-OFL.txt` (also included in packaged apps).
 
+## models.dev price catalog
+
+`assets/model-prices.json` contains normalized USD-per-million-token model rates
+from https://models.dev/api.json, fetched on 2026-10-14. It preserves exact
+provider/model identities and published context thresholds. These community
+list prices are estimates, not a guarantee of provider billing accuracy.
+
+- Project/source: https://github.com/anomalyco/models.dev
+- Copyright (c) 2025 models.dev
+- License: MIT, reproduced verbatim in `assets/models-dev-LICENSE.txt`.
+- Runtime updates are explicit, credential-free downloads from the same fixed
+  endpoint, cached in the app's user-data directory. No upstream code is executed.
+
 ## Runtime and build dependencies
 
 Electron, Chromium, Node.js, systeminformation, Zod, and the development tools

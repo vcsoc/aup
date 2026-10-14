@@ -1,10 +1,12 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
-import { emptyUsage, type ProviderId, type Settings, type Usage } from '../shared/types.js';
+import { emptyUsage, type ProviderId, type Settings, type Usage, type HistoryDay } from '../shared/types.js';
+import { emptyCost, sumCosts } from '../shared/stats.js';
+import { bundledPricing, quoteCost, type PriceCatalog, type Priceable } from './pricing.js';
 import { jsonLines, jsonFile, number, object, text, timestamp, walk, type Json } from './files.js';
 
-export interface Event {
+export interface Event extends Priceable {
   id: string; time: string; model: string; tokens: number; session: string; prompt?: boolean;
   cacheReadTokens?: number; billingProvider?: ProviderId; source?: string;
 }
@@ -13,6 +15,7 @@ const requestKey = (provider: string, id: string) => `response:${provider}:${cre
 // IDs are hashed worker-side, not displayed: display-text truncation could
 // merge distinct responses with a common prefix. JSONL input is already bounded.
 const responseIdentity = (value: unknown): string => typeof value === 'string' ? value : '';
+const knownNumber = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 export function localDay(time: string | Date): string {
   const d = typeof time === 'string' ? new Date(time) : time;
   if (!Number.isFinite(d.getTime())) return '';
@@ -21,36 +24,35 @@ export function localDay(time: string | Date): string {
 export function recentDays(now: Date): string[] {
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(now); d.setDate(d.getDate() - 6 + i); return localDay(d); });
 }
-export function summarize(events: Event[], now = new Date()): Usage {
+export function summarize(events: Event[], now = new Date(), catalog = bundledPricing): Usage {
   const usage = emptyUsage(); usage.models = Object.create(null); usage.sources = Object.create(null);
-  let todayCachedTokens: number | undefined = 0;
-  const days = new Map(recentDays(now).map(date => [date, 0]));
-  const sessions = new Set<string>();
-  // IDs are globally stable where the CLI supplies them, so copied Claude
-  // transcript messages cannot multiply the same request's usage.
-  const unique = new Map<string, Event>();
+  usage.totalCost = emptyCost();
+  const history = new Map<string, HistoryDay>(); const today = localDay(now);
+  const sessions = new Set<string>(); const unique = new Map<string, Event>();
   for (const event of events) {
     const previous = unique.get(event.id);
-    if (!previous || event.tokens >= previous.tokens) unique.set(event.id, event);
+    if (!previous || event.tokens > previous.tokens || (event.tokens === previous.tokens && (previous.recordedCost === undefined || event.recordedCost !== undefined))) unique.set(event.id, event);
   }
   for (const event of unique.values()) {
     const day = localDay(event.time);
     if (!day) continue;
     sessions.add(event.session);
-    if (event.prompt) { if (day === localDay(now)) usage.prompts++; continue; }
-    usage.totalTokens += event.tokens;
-    if (day === localDay(now)) {
-      usage.todayTokens += event.tokens;
-      todayCachedTokens = todayCachedTokens !== undefined && event.cacheReadTokens !== undefined
-        ? todayCachedTokens + Math.min(event.tokens, event.cacheReadTokens) : undefined;
-      if (event.source) usage.sources![event.source] = (usage.sources![event.source] || 0) + event.tokens;
-    }
-    if (days.has(day)) days.set(day, days.get(day)! + event.tokens);
+    if (event.prompt) { if (day === today) usage.prompts++; continue; }
+    const cost = quoteCost(event, catalog);
+    const bucket = history.get(day) || { date: day, tokens: 0, cachedTokens: 0, cost: emptyCost() };
+    bucket.tokens += event.tokens;
+    bucket.cachedTokens = bucket.cachedTokens !== undefined && event.cacheReadTokens !== undefined
+      ? bucket.cachedTokens + Math.min(event.tokens, event.cacheReadTokens) : undefined;
+    bucket.cost = sumCosts([bucket.cost, cost]); history.set(day, bucket);
+    usage.totalTokens += event.tokens; usage.totalCost = sumCosts([usage.totalCost, cost]);
+    if (day === today && event.source) usage.sources![event.source] = (usage.sources![event.source] || 0) + event.tokens;
     usage.models[event.model] = (usage.models[event.model] || 0) + event.tokens;
   }
-  usage.todayCachedTokens = todayCachedTokens;
-  usage.sessions = sessions.size;
-  usage.days = [...days].map(([date, tokens]) => ({ date, tokens }));
+  const current = history.get(today);
+  usage.todayTokens = current?.tokens || 0; usage.todayCachedTokens = current ? current.cachedTokens : 0;
+  usage.todayCost = current?.cost || emptyCost(); usage.sessions = sessions.size;
+  usage.history = [...history.values()].sort((a, b) => a.date.localeCompare(b.date));
+  usage.days = recentDays(now).map(date => ({ date, tokens: history.get(date)?.tokens || 0 }));
   return usage;
 }
 
@@ -84,7 +86,9 @@ export async function parseSession(file: string, provider: ProviderId): Promise<
         const responseId = responseIdentity(payload.response_id) || responseIdentity(info.response_id);
         const id = responseId ? requestKey('codex', responseId) : `codex:${session}:${total !== 'null' ? total : index}`;
         events.set(id, { id, session, time, model, tokens, source: 'Codex CLI',
-          cacheReadTokens: typeof usage.cached_input_tokens === 'number' ? number(usage.cached_input_tokens) : undefined });
+          cacheReadTokens: typeof usage.cached_input_tokens === 'number' ? number(usage.cached_input_tokens) : undefined,
+          cacheWriteTokens: number(usage.cache_write_input_tokens), outputTokens: knownNumber(usage.output_tokens),
+          inputTokens: knownNumber(usage.input_tokens) === undefined ? undefined : Math.max(0, number(usage.input_tokens) - number(usage.cached_input_tokens) - number(usage.cache_write_input_tokens)), pricingProvider: 'openai' });
       }
     } else if (provider === 'claude') {
       if (row.type === 'user' && !message.isMeta && !row.isMeta) {
@@ -101,7 +105,9 @@ export async function parseSession(file: string, provider: ProviderId): Promise<
       if (!tokens) continue;
       const id = `claude:${text(row.requestId)}:${text(message.id) || text(row.uuid) || `${file}:${index}`}`;
       const event = { id, time, session: text(row.sessionId) || file, model: text(message.model) || 'unknown', tokens,
-        cacheReadTokens: number(usage.cache_read_input_tokens), source: 'Claude Code' };
+        cacheReadTokens: number(usage.cache_read_input_tokens), cacheWriteTokens: number(usage.cache_creation_input_tokens),
+        inputTokens: knownNumber(usage.input_tokens), outputTokens: knownNumber(usage.output_tokens), pricingProvider: 'anthropic',
+        recordedCost: knownNumber(row.costUSD), source: 'Claude Code' };
       // Streaming transcript rows replace earlier partial usage for a request.
       if (!events.has(id) || tokens >= events.get(id)!.tokens) events.set(id, event);
     } else if (provider === 'pi') {
@@ -125,7 +131,10 @@ export async function parseSession(file: string, provider: ProviderId): Promise<
       const identity = responseIdentity(message.responseId) || (text(row.id) ? `${text(row.id)}:${time}` : `${file}:${index}`);
       const id = requestKey(billingProvider === 'codex' ? 'codex' : `pi:${text(message.provider)}`, identity);
       const event: Event = { id, time, session: file, model: text(message.model) || 'unknown', tokens, billingProvider, source,
-        cacheReadTokens: components > 0 || typeof usage.cacheRead === 'number' ? number(usage.cacheRead) : undefined };
+        cacheReadTokens: components > 0 || typeof usage.cacheRead === 'number' ? number(usage.cacheRead) : undefined,
+        inputTokens: knownNumber(usage.input), outputTokens: knownNumber(usage.output),
+        cacheWriteTokens: components > 0 ? number(usage.cacheWrite) : undefined,
+        pricingProvider: text(message.provider), recordedCost: knownNumber(object(usage.cost).total) };
       if (!events.has(id) || tokens >= events.get(id)!.tokens) events.set(id, event);
     }
   }
@@ -139,7 +148,7 @@ async function grokSession(file: string): Promise<Event[]> {
     events.push({ id: `${file}:prompt:${index}`, time, session: file, model: 'unknown', tokens: 0, prompt: true });
     for (const [model, raw] of Object.entries(object(row.modelUsage))) {
       const usage = object(raw);
-      events.push({ id: `${file}:${index}:${model}`, time, session: file, model: text(model), tokens: number(usage.inputTokens) + number(usage.outputTokens) + number(usage.cacheCreationTokens), cacheReadTokens: number(usage.cachedReadTokens), source: 'Grok' });
+      events.push({ id: `${file}:${index}:${model}`, time, session: file, model: text(model), tokens: number(usage.inputTokens) + number(usage.outputTokens) + number(usage.cacheCreationTokens), cacheReadTokens: number(usage.cachedReadTokens), cacheWriteTokens: number(usage.cacheCreationTokens), inputTokens: knownNumber(usage.inputTokens) === undefined ? undefined : Math.max(0, number(usage.inputTokens) - number(usage.cachedReadTokens)), outputTokens: knownNumber(usage.outputTokens), pricingProvider: 'xai', source: 'Grok' });
     }
   }
   return events;
@@ -148,7 +157,7 @@ async function grokSession(file: string): Promise<Event[]> {
 interface CachedFile { size: number; mtime: number; events: Event[] }
 export class UsageScanner {
   private cache = new Map<string, CachedFile>();
-  async scan(settings: Settings, now = new Date()): Promise<{ usage: Partial<Record<ProviderId, Usage>>; warnings: Partial<Record<ProviderId, string[]>>; piUsesCodex: boolean }> {
+  async scan(settings: Settings, now = new Date(), catalog: PriceCatalog = bundledPricing): Promise<{ usage: Partial<Record<ProviderId, Usage>>; warnings: Partial<Record<ProviderId, string[]>>; piUsesCodex: boolean }> {
     const usage: Partial<Record<ProviderId, Usage>> = {}; const warnings: Partial<Record<ProviderId, string[]>> = {};
     const grouped: Partial<Record<ProviderId, Event[]>> = {};
     let piUsesCodex = false;
@@ -178,7 +187,7 @@ export class UsageScanner {
       warnings[provider] = [...new Set(problems)];
     }
     if (piUsesCodex) warnings.codex = [...new Set([...(warnings.codex || []), ...(warnings.pi || [])])];
-    for (const provider of Object.keys(grouped) as ProviderId[]) usage[provider] = summarize(grouped[provider]!, now);
+    for (const provider of Object.keys(grouped) as ProviderId[]) usage[provider] = summarize(grouped[provider]!, now, catalog);
     for (const key of this.cache.keys()) if (!seen.has(key)) this.cache.delete(key);
     return { usage, warnings, piUsesCodex };
   }

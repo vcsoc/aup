@@ -6,12 +6,16 @@ export const names: Record<ProviderId, string> = {
 export interface Limit { label: string; percent: number; resetsAt: string }
 export interface Balance { remaining: number; currency: string; estimated: boolean }
 export interface DayUsage { date: string; tokens: number }
+export interface CostSummary { usd: number; knownTokens: number; unpricedTokens: number; estimated: boolean; recorded: boolean }
+export interface HistoryDay extends DayUsage { cachedTokens?: number; cost: CostSummary }
+export interface PricingInfo { fetchedAt: number; models: number; updating?: boolean; error?: string }
 export interface Usage {
   todayTokens: number; totalTokens: number; prompts: number; sessions: number;
   days: DayUsage[]; models: Record<string, number>;
   // todayTokens/days/models include cache reads. Undefined means the source
   // cannot provide a trustworthy cache breakdown (e.g. imported aggregates).
   todayCachedTokens?: number; sources?: Record<string, number>;
+  todayCost?: CostSummary; totalCost?: CostSummary; history?: HistoryDay[];
 }
 export interface Resources { cpu: number; memory: number; processes: number }
 export interface Agent {
@@ -26,7 +30,7 @@ export interface Settings {
 }
 export interface Snapshot {
   agents: Agent[]; updatedAt: number; resourceAt: number; scanning: boolean;
-  demo: boolean; errors: string[]; platform: string;
+  demo: boolean; errors: string[]; platform: string; pricing?: PricingInfo;
 }
 export interface AppInfo { version: string; settingsPath: string; platform: string; startupSupported: boolean }
 export interface PanelAPI {
@@ -34,6 +38,8 @@ export interface PanelAPI {
   settings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<Settings>;
   refresh(): Promise<void>;
+  refreshPrices(): Promise<void>;
+  fitContent(height: number): Promise<void>;
   onSnapshot(callback: (snapshot: Snapshot) => void): () => void;
   info(): Promise<AppInfo>;
   hide(): Promise<void>;

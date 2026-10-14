@@ -5,19 +5,33 @@ import { QuotaCollector } from './quotas.js';
 import { importRecords } from './imports.js';
 import { collectProcesses } from './processes.js';
 import { probePids } from './rpc.js';
+import { fetchPricing, loadPricing, savePricing } from './pricing.js';
 
 let settings: Settings = workerData.settings;
+let catalog = await loadPricing(workerData.pricingFile);
+let pricingUpdating = false; let pricingError = '';
 let scanner = new UsageScanner(); const quotas = new QuotaCollector();
 let generation = 0; let scanning = false; let sampling = false; let tick = 0;
 let snapshot: Snapshot = { agents: providerIds.map(id => newAgent(id, names[id])), updatedAt: 0, resourceAt: 0, scanning: true, demo: false, errors: [], platform: process.platform };
 let processError = ''; let scanErrors: string[] = [];
-const publish = () => parentPort?.postMessage({ ...snapshot, errors: [...scanErrors, ...(processError ? [processError] : [])] });
+const publish = () => parentPort?.postMessage({ ...snapshot, errors: [...scanErrors, ...(processError ? [processError] : [])],
+  pricing: { fetchedAt: catalog.fetchedAt, models: Object.keys(catalog.models).length, updating: pricingUpdating, error: pricingError } });
+async function updatePrices(): Promise<void> {
+  if (pricingUpdating) return;
+  pricingUpdating = true; pricingError = ''; publish();
+  try {
+    const next = await fetchPricing();
+    if (workerData.pricingFile) await savePricing(workerData.pricingFile, next);
+    catalog = next; generation++; void scan();
+  } catch { pricingError = 'Price update failed. Previous prices retained; check your connection and retry.'; }
+  finally { pricingUpdating = false; publish(); }
+}
 async function scan(force = false): Promise<void> {
   if (scanning) return;
   scanning = true; snapshot.scanning = true; publish();
   const version = generation; const currentSettings = settings;
   try {
-    const local = await scanner.scan(currentSettings);
+    const local = await scanner.scan(currentSettings, new Date(), catalog);
     const imported = await importRecords(currentSettings.importDir);
     const imports = new Map(imported.agents.map(agent => [agent.id, agent]));
     const agents = await Promise.all(providerIds.map(async id => {
@@ -74,6 +88,7 @@ parentPort?.on('message', (message: { type: string; settings?: Settings }) => {
     snapshot.updatedAt = 0; snapshot.resourceAt = 0;
     void scan(); void sample();
   } else if (message.type === 'refresh') { void scan(true); void sample(); }
+  else if (message.type === 'prices') void updatePrices();
 });
 void scan(); void sample();
 setInterval(() => { void sample(); if (++tick % 3 === 0) void scan(); }, 5000);

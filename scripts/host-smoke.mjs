@@ -15,8 +15,10 @@ try {
   await writeFile(path.join(settings.paths.claude, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'FIXTURE-TOKEN-DO-NOT-RENDER' } }));
   await writeFile(path.join(dir, 'session.jsonl'), JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), requestId: 'r', sessionId: 's', message: { id: 'm', model: 'fixture-model', content: 'PRIVATE-FIXTURE-CONTENT', usage: { input_tokens: 10, output_tokens: 20 } } }) + '\n');
   const piDir = path.join(settings.paths.pi, 'sessions'); await mkdir(piDir, { recursive: true });
-  const pi = { type: 'message', id: 'pi-entry', timestamp: new Date().toISOString(), message: { role: 'assistant', provider: 'openai-codex', responseId: 'PRIVATE-RESPONSE-ID', content: 'PRIVATE-PI-CONTENT', usage: { input: 10, output: 20, cacheRead: 70 } } };
+  const pi = { type: 'message', id: 'pi-entry', timestamp: new Date().toISOString(), message: { role: 'assistant', provider: 'openai-codex', responseId: 'PRIVATE-RESPONSE-ID', content: 'PRIVATE-PI-CONTENT', usage: { input: 10, output: 20, cacheRead: 70, cost: { total: 0.25 } } } };
   for (const file of ['original', 'copy']) await writeFile(path.join(piDir, `${file}.jsonl`), JSON.stringify(pi) + '\n');
+  const codexDir = path.join(settings.paths.codex, 'sessions'); await mkdir(codexDir, { recursive: true });
+  await writeFile(path.join(codexDir, 'oversized.jsonl'), 'x'.repeat(2 * 1024 * 1024 + 1) + '\n');
   await mkdir(settings.importDir); const maliciousName = '<img src=x onerror="window.injected=true">';
   await writeFile(path.join(settings.importDir, 'custom.json'), JSON.stringify({ id: 'custom', name: maliciousName, todayTotalTokens: 42 }));
   app = await electron.launch({ args, executablePath: process.env.AUP_EXECUTABLE || undefined, timeout: 30000 });
@@ -32,7 +34,13 @@ try {
   const codex = page.locator('[data-agent=codex]');
   await expect(codex.locator('.daily-tokens')).toContainText('Uncached30');
   await expect(page.locator('[data-agent=pi] .daily-tokens')).toContainText('↗ Codex');
-  await expect(page.locator('[data-agent=pi] .no-quota')).toContainText('harness metrics');
+  await expect(page.locator('[data-agent=pi] .quota-inline')).toContainText('Usage ↗ Codex');
+  await expect(page.locator('.no-quota, .quota-area')).toHaveCount(0);
+  await expect(codex.locator('.agent-cost')).toHaveText('$0.25');
+  expect(await codex.locator('.agent-heading').evaluate(heading => {
+    const row = heading.getBoundingClientRect(), status = heading.querySelector('.quota-inline').getBoundingClientRect();
+    return status.top >= row.top && status.bottom <= row.bottom && status.left > row.left && status.right < row.right;
+  })).toBe(true);
   await codex.locator('summary').click();
   await expect(codex.locator('.detail-content')).toContainText('Processed today100');
   await expect(codex.locator('.detail-content')).toContainText('Cached input today70');
@@ -42,6 +50,19 @@ try {
   // summary uncached or silently subtract an assumed zero cache count.
   await expect(page.locator('.summary-cell').first()).toContainText('Processed today');
   await expect(page.locator('.summary-cell').first()).toContainText('172');
+  await expect.poll(() => page.evaluate(() => Math.abs(window.innerHeight - document.querySelector('#app').getBoundingClientRect().height))).toBeLessThanOrEqual(2);
+  await page.getByRole('tab', { name: 'Stats', exact: true }).click();
+  await expect(page.locator('.stats-summary')).toContainText('$0.25+');
+  await expect(page.getByText(/Partial history:/)).toContainText('totals are partial');
+  await expect(page.locator('.stats-summary')).toContainText('172');
+  await page.getByRole('tab', { name: 'Days', exact: true }).click();
+  await page.locator('#stats-provider').selectOption('codex');
+  await expect(page.locator('tfoot')).toContainText('100');
+  await expect(page.locator('tfoot')).toContainText('$0.25');
+  expect(await page.locator('img').count()).toBe(0);
+  await page.getByRole('tab', { name: 'Live', exact: true }).click();
+  // IPC only accepts bounded numeric content heights, never arbitrary window options.
+  expect(await page.evaluate(async () => { try { await window.panel.fitContent(NaN); return false; } catch { return true; } })).toBe(true);
   const serialized = await page.evaluate(async () => JSON.stringify(await window.panel.snapshot()));
   expect(serialized).not.toContain('FIXTURE-TOKEN'); expect(serialized).not.toContain('PRIVATE-FIXTURE-CONTENT');
   expect(serialized).not.toContain('PRIVATE-PI-CONTENT'); expect(serialized).not.toContain('PRIVATE-RESPONSE-ID');
