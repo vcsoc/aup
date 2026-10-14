@@ -79,7 +79,8 @@ main { padding: 6px 8px; }
 .summary-cell { padding: 5px 8px; min-width: 0; }
 .summary-cell + .summary-cell { border-left: 1px solid var(--line); }
 .summary-cell > span { display: block; color: var(--muted); font-size: 9px; }
-.summary-cell > strong { display: block; margin-top: 1px; font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.summary-cell > small { display: inline-block; margin-left: 4px; color: var(--faint); font-size: 8px; }
+.summary-cell > strong { display: inline-block; margin-top: 1px; font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 5px 0; }
 .filters { display: flex; gap: 2px; }
 .filters button { padding: 4px 5px; border: 0; border-radius: 3px; background: none; color: var(--muted); font-size: 9px; white-space: nowrap; }

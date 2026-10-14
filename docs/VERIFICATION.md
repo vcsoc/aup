@@ -8,17 +8,19 @@ npm 10.9.7, Electron 44.7.2.
 | Check | Evidence |
 | --- | --- |
 | Strict TypeScript | `npm run typecheck` passes for renderer/shared/main code and tests |
-| Unit/integration suite | `npm test`: **51 tests, 5 files, all passing** |
+| Unit/integration suite | `npm test`: **72 tests, 7 files, all passing** |
 | Production build | `npm run build`: main/worker compilation and local Vite renderer assets |
-| Worker integration | `node scripts/worker-smoke.mjs`: isolated Claude + custom provider fixtures, quotas off, projected metadata, settings reset |
+| Worker integration | `node scripts/worker-smoke.mjs`: isolated Claude/Codex/Pi/import fixtures, copied-response deduplication, backend attribution, cached-read breakdown, quotas off, projected metadata, settings reset |
 | Desktop UI | `node scripts/smoke.mjs`: launches actual Electron, checks the 420×670 default window, thin stacked full-width rows, no intro/privacy banner, refresh icon/tooltip, locally loaded JetBrains Mono throughout the UI, six demo agents, filters, details, settings, dark/light themes, native narrow/wide resizing, keyboard shortcuts, refresh |
 | Runtime isolation | Smoke checks confirm sandbox/context isolation enabled, Node integration disabled, no renderer `require`/`process` or arbitrary filesystem preload method |
 | Real host + worker | `node scripts/host-smoke.mjs`: temporary profile, actual collection, settings persisted through IPC, malicious imported name escaped, fixture credential/content not included in snapshot, renderer networking denied |
+| Login launch integration | `node scripts/startup-smoke.mjs`: hidden `--startup` launch, tray-unavailable fallback, reopen, old-settings migration, demo/smoke registration isolation |
+| Actual macOS login item | Installed v0.1.2 launched with an isolated profile but **without** demo/smoke flags; native `app.getLoginItemSettings().openAtLogin === true`, no startup warnings, Settings checkbox enabled/checked. Explicit `--startup` launch stayed hidden and reopened on activation. No reboot/logout was performed; native macOS login-launch detection still needs an actual login cycle. |
 | Native process sampler | `collectProcesses` executed against macOS' actual process table; recognized active Pi/Codex trees and returned aggregate CPU/RSS only |
 | Unpacked application | `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack`: creates native ARM64 `.app` |
-| Packaged runtime | Both `scripts/smoke.mjs` and `scripts/host-smoke.mjs` pass with `AUP_EXECUTABLE` pointing at the unpacked `.app` executable, including its ASAR-packaged worker/dependencies and bundled JetBrains Mono |
+| Packaged runtime | `scripts/smoke.mjs`, `scripts/host-smoke.mjs`, and `scripts/startup-smoke.mjs` pass with `AUP_EXECUTABLE` pointing at the unpacked `.app` executable, including its ASAR-packaged worker/dependencies and bundled JetBrains Mono |
 | Install image | `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64`: creates unsigned ARM64 DMG |
-| Installed update | Installed v0.1.1 at `/Applications/Agent Usage Panel.app`; both UI and real-host smoke scripts passed against that installed executable using temporary profiles. Relaunched the normal installed app afterward. Existing user-profile directories were not replaced or edited by the update; the previous bundle is retained under `~/Library/Caches/Agent Usage Panel/backups/20261014-145110/`. |
+| Installed update | Installed v0.1.2 at `/Applications/Agent Usage Panel.app`; UI, real-host, and login-launch smoke scripts passed against that executable using temporary profiles. Relaunched the normal installed app afterward. Existing user-profile directories were not replaced or edited by the update; the previous v0.1.1 bundle is retained under `~/Library/Caches/Agent Usage Panel/backups/20261014-150951/`. |
 | Dependencies | `npm audit`: **0 vulnerabilities** (including development dependencies) |
 | Upstream preservation | All **30 vendored files** compared byte-for-byte against pinned Omarchy commit `84cfb93959f4fe0bbb71de71593b36647d2ba78d` |
 
@@ -30,7 +32,16 @@ to `docs/panel.png` for the README. They are explicitly labeled demo data.
 - Claude partial streaming rows, request deduplication, human/tool-result prompts.
 - Codex cumulative-counter deduplication, cached/reasoning token inclusion,
   OpenAI/custom-provider attribution, old metadata compatibility.
-- Pi component totals and fallback totals; Grok per-turn ledgers.
+- Pi component/fallback totals, copied response/entry deduplication, partial rows,
+  long response IDs, explicit cross-log response identity, Codex OAuth attribution
+  versus generic OpenAI/other backends, and scanner cache consistency.
+- Uncached/cached/processed display units, unknown imported breakdowns, zero rows,
+  cache creation versus cache reads, local dates, and invalid cache values.
+- Default-on startup settings migration, macOS/Windows registration adapters and
+  opt-out, OS refusal/error sanitization, Windows-only status handling, Linux XDG
+  entry quoting/field-code escaping, idempotence, removal, AppImage persistence,
+  fallback config path, write errors, and isolated-session suppression.
+- Grok per-turn ledgers.
 - Local day boundaries, seven-day windows, invalid timestamps, prototype-like
   model keys, copied transcript messages, cache append/deletion invalidation.
 - Process executable/runtime matching on POSIX and Windows-style paths,
@@ -68,7 +79,7 @@ suite is reference material, not counted among this project's passing tests.
 ## Local artifacts
 
 - `release/mac-arm64/Agent Usage Panel.app`
-- `release/Agent Usage Panel-0.1.1-arm64.dmg`
+- `release/Agent Usage Panel-0.1.2-arm64.dmg`
 
 Build outputs are ignored by Git. The app is unsigned and unnotarized; no signing
 identity was used and nothing was published. See the README for building on each

@@ -1,9 +1,18 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { emptyUsage, type ProviderId, type Settings, type Usage } from '../shared/types.js';
 import { jsonLines, jsonFile, number, object, text, timestamp, walk, type Json } from './files.js';
 
-export interface Event { id: string; time: string; model: string; tokens: number; session: string; prompt?: boolean }
+export interface Event {
+  id: string; time: string; model: string; tokens: number; session: string; prompt?: boolean;
+  cacheReadTokens?: number; billingProvider?: ProviderId; source?: string;
+}
+// Compare stable request identities, never similar token counts or model names.
+const requestKey = (provider: string, id: string) => `response:${provider}:${createHash('sha256').update(id).digest('hex')}`;
+// IDs are hashed worker-side, not displayed: display-text truncation could
+// merge distinct responses with a common prefix. JSONL input is already bounded.
+const responseIdentity = (value: unknown): string => typeof value === 'string' ? value : '';
 export function localDay(time: string | Date): string {
   const d = typeof time === 'string' ? new Date(time) : time;
   if (!Number.isFinite(d.getTime())) return '';
@@ -13,7 +22,8 @@ export function recentDays(now: Date): string[] {
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(now); d.setDate(d.getDate() - 6 + i); return localDay(d); });
 }
 export function summarize(events: Event[], now = new Date()): Usage {
-  const usage = emptyUsage(); usage.models = Object.create(null);
+  const usage = emptyUsage(); usage.models = Object.create(null); usage.sources = Object.create(null);
+  let todayCachedTokens: number | undefined = 0;
   const days = new Map(recentDays(now).map(date => [date, 0]));
   const sessions = new Set<string>();
   // IDs are globally stable where the CLI supplies them, so copied Claude
@@ -29,10 +39,16 @@ export function summarize(events: Event[], now = new Date()): Usage {
     sessions.add(event.session);
     if (event.prompt) { if (day === localDay(now)) usage.prompts++; continue; }
     usage.totalTokens += event.tokens;
-    if (day === localDay(now)) usage.todayTokens += event.tokens;
+    if (day === localDay(now)) {
+      usage.todayTokens += event.tokens;
+      todayCachedTokens = todayCachedTokens !== undefined && event.cacheReadTokens !== undefined
+        ? todayCachedTokens + Math.min(event.tokens, event.cacheReadTokens) : undefined;
+      if (event.source) usage.sources![event.source] = (usage.sources![event.source] || 0) + event.tokens;
+    }
     if (days.has(day)) days.set(day, days.get(day)! + event.tokens);
     usage.models[event.model] = (usage.models[event.model] || 0) + event.tokens;
   }
+  usage.todayCachedTokens = todayCachedTokens;
   usage.sessions = sessions.size;
   usage.days = [...days].map(([date, tokens]) => ({ date, tokens }));
   return usage;
@@ -42,6 +58,7 @@ export async function parseSession(file: string, provider: ProviderId): Promise<
   const events = new Map<string, Event>();
   let model = 'unknown'; let nativeProvider = 'openai'; let cumulative = '';
   let session = file; let index = 0;
+  let pendingPiPrompts: Event[] = [];
   for await (const row of jsonLines(file)) {
     index++;
     const message = object(row.message); const payload = object(row.payload);
@@ -63,7 +80,12 @@ export async function parseSession(file: string, provider: ProviderId): Promise<
       // Input includes cached input; output includes reasoning. Never add
       // those subcategories again.
       const tokens = number(usage.input_tokens) + number(usage.output_tokens);
-      if (tokens) events.set(`codex:${session}:${index}`, { id: `codex:${session}:${index}`, session, time, model, tokens });
+      if (tokens) {
+        const responseId = responseIdentity(payload.response_id) || responseIdentity(info.response_id);
+        const id = responseId ? requestKey('codex', responseId) : `codex:${session}:${total !== 'null' ? total : index}`;
+        events.set(id, { id, session, time, model, tokens, source: 'Codex CLI',
+          cacheReadTokens: typeof usage.cached_input_tokens === 'number' ? number(usage.cached_input_tokens) : undefined });
+      }
     } else if (provider === 'claude') {
       if (row.type === 'user' && !message.isMeta && !row.isMeta) {
         const content = message.content;
@@ -78,21 +100,33 @@ export async function parseSession(file: string, provider: ProviderId): Promise<
       const tokens = number(usage.input_tokens) + number(usage.output_tokens) + number(usage.cache_read_input_tokens) + number(usage.cache_creation_input_tokens);
       if (!tokens) continue;
       const id = `claude:${text(row.requestId)}:${text(message.id) || text(row.uuid) || `${file}:${index}`}`;
-      const event = { id, time, session: text(row.sessionId) || file, model: text(message.model) || 'unknown', tokens };
+      const event = { id, time, session: text(row.sessionId) || file, model: text(message.model) || 'unknown', tokens,
+        cacheReadTokens: number(usage.cache_read_input_tokens), source: 'Claude Code' };
       // Streaming transcript rows replace earlier partial usage for a request.
       if (!events.has(id) || tokens >= events.get(id)!.tokens) events.set(id, event);
     } else if (provider === 'pi') {
       if (row.type !== 'message') continue;
       if (message.role === 'user') {
-        const id = `pi-prompt:${text(row.id) || `${file}:${index}`}`;
-        events.set(id, { id, time, session: file, model, tokens: 0, prompt: true });
+        const id = `pi-prompt:${text(row.id) ? `${text(row.id)}:${time}` : `${file}:${index}`}`;
+        const prompt = { id, time, session: file, model, tokens: 0, prompt: true };
+        events.set(id, prompt); pendingPiPrompts.push(prompt);
       }
       if (message.role !== 'assistant') continue;
+      // The OAuth provider identifies the subscription. A GPT model name (or
+      // the generic OpenAI API provider) does not establish Codex ownership.
+      const billingProvider = message.provider === 'openai-codex' ? 'codex' : 'pi';
+      const source = billingProvider === 'codex' ? 'Pi (OpenAI Codex)' : 'Pi (other providers)';
+      for (const prompt of pendingPiPrompts) Object.assign(prompt, { billingProvider, source });
+      pendingPiPrompts = [];
       const usage = object(message.usage);
-      const tokens = number(usage.input) + number(usage.output) + number(usage.cacheRead) + number(usage.cacheWrite) || number(usage.totalTokens);
+      const components = number(usage.input) + number(usage.output) + number(usage.cacheRead) + number(usage.cacheWrite);
+      const tokens = components || number(usage.totalTokens);
       if (!tokens) continue;
-      const id = `pi:${file}:${text(row.id) || index}`;
-      events.set(id, { id, time, session: file, model: text(message.model) || 'unknown', tokens });
+      const identity = responseIdentity(message.responseId) || (text(row.id) ? `${text(row.id)}:${time}` : `${file}:${index}`);
+      const id = requestKey(billingProvider === 'codex' ? 'codex' : `pi:${text(message.provider)}`, identity);
+      const event: Event = { id, time, session: file, model: text(message.model) || 'unknown', tokens, billingProvider, source,
+        cacheReadTokens: components > 0 || typeof usage.cacheRead === 'number' ? number(usage.cacheRead) : undefined };
+      if (!events.has(id) || tokens >= events.get(id)!.tokens) events.set(id, event);
     }
   }
   return provider === 'codex' && nativeProvider !== 'openai' ? [] : [...events.values()];
@@ -105,7 +139,7 @@ async function grokSession(file: string): Promise<Event[]> {
     events.push({ id: `${file}:prompt:${index}`, time, session: file, model: 'unknown', tokens: 0, prompt: true });
     for (const [model, raw] of Object.entries(object(row.modelUsage))) {
       const usage = object(raw);
-      events.push({ id: `${file}:${index}:${model}`, time, session: file, model: text(model), tokens: number(usage.inputTokens) + number(usage.outputTokens) + number(usage.cacheCreationTokens) });
+      events.push({ id: `${file}:${index}:${model}`, time, session: file, model: text(model), tokens: number(usage.inputTokens) + number(usage.outputTokens) + number(usage.cacheCreationTokens), cacheReadTokens: number(usage.cachedReadTokens), source: 'Grok' });
     }
   }
   return events;
@@ -114,29 +148,38 @@ async function grokSession(file: string): Promise<Event[]> {
 interface CachedFile { size: number; mtime: number; events: Event[] }
 export class UsageScanner {
   private cache = new Map<string, CachedFile>();
-  async scan(settings: Settings, now = new Date()): Promise<{ usage: Partial<Record<ProviderId, Usage>>; warnings: Partial<Record<ProviderId, string[]>> }> {
+  async scan(settings: Settings, now = new Date()): Promise<{ usage: Partial<Record<ProviderId, Usage>>; warnings: Partial<Record<ProviderId, string[]>>; piUsesCodex: boolean }> {
     const usage: Partial<Record<ProviderId, Usage>> = {}; const warnings: Partial<Record<ProviderId, string[]>> = {};
+    const grouped: Partial<Record<ProviderId, Event[]>> = {};
+    let piUsesCodex = false;
     const seen = new Set<string>();
-    if (!settings.localEnabled) { this.cache.clear(); return { usage, warnings }; }
+    if (!settings.localEnabled) { this.cache.clear(); return { usage, warnings, piUsesCodex }; }
     for (const provider of ['claude', 'codex', 'pi', 'grok'] as const) {
       const root = path.join(settings.paths[provider], provider === 'claude' ? 'projects' : 'sessions');
       const listing = await walk(root, name => provider === 'grok' ? name === 'usage.json' : name.endsWith('.jsonl'));
       const events: Event[] = []; const problems = [...listing.warnings];
       for (const file of listing.files) {
-        seen.add(file);
+        const key = `${provider}:${file}`; seen.add(key);
         try {
-          const info = await stat(file); const cached = this.cache.get(file);
+          const info = await stat(file); const cached = this.cache.get(key);
           if (cached && cached.size === info.size && cached.mtime === info.mtimeMs) events.push(...cached.events);
           else {
             const parsed = provider === 'grok' ? await grokSession(file) : await parseSession(file, provider);
-            this.cache.set(file, { size: info.size, mtime: info.mtimeMs, events: parsed }); events.push(...parsed);
+            this.cache.set(key, { size: info.size, mtime: info.mtimeMs, events: parsed }); events.push(...parsed);
           }
         } catch { problems.push('A session was unreadable or exceeded scan limits; totals are partial.'); }
       }
-      usage[provider] = summarize(events, now);
+      grouped[provider] ||= [];
+      for (const event of events) {
+        const target = event.billingProvider || provider;
+        (grouped[target] ||= []).push(event);
+        if (provider === 'pi' && target === 'codex' && !event.prompt) piUsesCodex = true;
+      }
       warnings[provider] = [...new Set(problems)];
     }
+    if (piUsesCodex) warnings.codex = [...new Set([...(warnings.codex || []), ...(warnings.pi || [])])];
+    for (const provider of Object.keys(grouped) as ProviderId[]) usage[provider] = summarize(grouped[provider]!, now);
     for (const key of this.cache.keys()) if (!seen.has(key)) this.cache.delete(key);
-    return { usage, warnings };
+    return { usage, warnings, piUsesCodex };
   }
 }

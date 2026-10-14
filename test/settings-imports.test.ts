@@ -13,6 +13,13 @@ describe('settings', () => {
     const settings = defaultSettings({ CODEX_HOME: '/codex', CLAUDE_CONFIG_DIR: '/claude', PI_CODING_AGENT_DIR: '/pi' }, '/home/test');
     expect(settings.networkEnabled).toBe(false); expect(settings.paths.codex).toBe('/codex'); expect(settings.paths.claude).toBe('/claude'); expect(settings.paths.pi).toBe('/pi');
   });
+  it('migrates existing settings to login startup without discarding saved paths or theme', async () => {
+    const { startAtLogin: _, ...old } = { ...defaultSettings(), theme: 'light', threshold: 95 };
+    const file = path.join(await temp(), 'settings.json'); await writeFile(file, JSON.stringify(old));
+    const loaded = await loadSettings(file);
+    expect(loaded.warning).toBeUndefined(); expect(loaded.settings).toEqual({ ...old, startAtLogin: true });
+    expect(settingsSchema.parse({ ...old, startAtLogin: false }).startAtLogin).toBe(false);
+  });
   it('validates numeric ranges, unknown fields, control characters and absolute paths', () => {
     const settings = defaultSettings();
     for (const input of [{ ...settings, threshold: 101 }, { ...settings, refreshSeconds: 1 }, { ...settings, networkEnabled: 'true' }, { ...settings, command: 'evil' }, { ...settings, importDir: '\x00' }, { ...settings, paths: { ...settings.paths, codex: '' } }]) expect(settingsSchema.safeParse(input).success).toBe(false);

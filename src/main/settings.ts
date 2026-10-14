@@ -9,7 +9,7 @@ const location = z.string().max(4096).refine(value => !/[\x00-\x1f]/.test(value)
 const absolute = location.refine(value => /^(?:\/|[a-zA-Z]:[\\/]|\\\\)/.test(value), 'Use an absolute path');
 const optionalPath = z.union([z.literal(''), absolute]);
 export const settingsSchema = z.object({
-  networkEnabled: z.boolean(), processEnabled: z.boolean(), localEnabled: z.boolean(),
+  networkEnabled: z.boolean(), processEnabled: z.boolean(), localEnabled: z.boolean(), startAtLogin: z.boolean().default(true),
   refreshSeconds: z.number().int().min(30).max(3600), threshold: z.number().int().min(50).max(100),
   theme: z.enum(['system', 'dark', 'light']),
   paths: z.object({ claude: absolute, codex: absolute, grok: absolute, kimi: absolute, fireworks: absolute, pi: absolute }),
@@ -18,7 +18,7 @@ export const settingsSchema = z.object({
 
 export function defaultSettings(env = process.env, home = homedir()): Settings {
   return {
-    networkEnabled: false, processEnabled: true, localEnabled: true, refreshSeconds: 300,
+    networkEnabled: false, processEnabled: true, localEnabled: true, startAtLogin: true, refreshSeconds: 300,
     threshold: 90, theme: 'system',
     paths: {
       claude: env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'),

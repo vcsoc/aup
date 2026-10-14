@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { demoSnapshot } from './demo.js';
+import { configureStartup, type StartupResult } from './startup.js';
+import { homedir } from 'node:os';
 import { names, newAgent, providerIds, type Settings, type Snapshot } from '../shared/types.js';
 
 const demo = process.argv.includes('--demo');
@@ -13,6 +15,17 @@ const page = pathToFileURL(path.join(root, 'dist', 'renderer', 'index.html')).hr
 let window: BrowserWindow | null = null; let tray: Tray | null = null; let worker: Worker | null = null;
 let quitting = false; let settings = defaultSettings(); let settingsWarning = ''; let settingsFile = '';
 let restarts = 0; let lastRefresh = 0;
+let startup: StartupResult = { supported: false };
+let launchedAtLogin = process.argv.includes('--startup');
+async function applyStartup(): Promise<void> {
+  startup = await configureStartup({
+    platform: process.platform, enabled: settings.startAtLogin, packaged: app.isPackaged,
+    isolated: demo || smoke, executable: process.execPath, home: homedir(),
+    configHome: process.env.XDG_CONFIG_HOME, appImage: process.env.APPIMAGE,
+    loginItems: { set: options => app.setLoginItemSettings(options), get: options => app.getLoginItemSettings(options) },
+  });
+}
+const hostWarnings = () => [...(settingsWarning ? [settingsWarning] : []), ...(startup.warning ? [startup.warning] : [])];
 let state: Snapshot = demo ? demoSnapshot() : { agents: providerIds.map(id => newAgent(id, names[id])), updatedAt: 0, resourceAt: 0, scanning: true, demo, errors: [], platform: process.platform };
 const alerted = new Set<string>();
 
@@ -65,7 +78,7 @@ function updateTray(): void {
   for (const key of alerted) if (!active.has(key)) alerted.delete(key);
 }
 function publish(): void {
-  const snapshot = { ...state, errors: [...state.errors, ...(settingsWarning ? [settingsWarning] : [])] };
+  const snapshot = { ...state, errors: [...state.errors, ...hostWarnings()] };
   window?.webContents.send('panel:update', snapshot); updateTray();
 }
 function startWorker(): void {
@@ -97,7 +110,7 @@ function createWindow(): void {
   // Renderer has no network capability, even if a future UI change adds a URL.
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !details.url.startsWith('file:') && !details.url.startsWith('devtools:') }));
   window.on('close', event => { if (!quitting && !smoke) { event.preventDefault(); window?.hide(); } });
-  window.once('ready-to-show', () => show());
+  window.once('ready-to-show', () => { if (!launchedAtLogin || !tray) show(); });
   void window.loadURL(page);
 }
 
@@ -112,11 +125,14 @@ else {
     if (!demo) {
       const loaded = await loadSettings(settingsFile); settings = loaded.settings; settingsWarning = loaded.warning || '';
     }
-    handle('panel:snapshot', () => ({ ...state, errors: [...state.errors, ...(settingsWarning ? [settingsWarning] : [])] }));
+    await applyStartup();
+    if (!demo && !smoke && process.platform === 'darwin') launchedAtLogin ||= app.getLoginItemSettings().wasOpenedAtLogin;
+    handle('panel:snapshot', () => ({ ...state, errors: [...state.errors, ...hostWarnings()] }));
     handle('panel:settings', () => settings);
-    handle('panel:info', () => ({ version: app.getVersion(), platform: process.platform, settingsPath: demo ? '(demo: settings are not written)' : settingsFile }));
+    handle('panel:info', () => ({ version: app.getVersion(), platform: process.platform, settingsPath: demo ? '(demo: settings are not written)' : settingsFile, startupSupported: startup.supported }));
     handle('panel:save-settings', async input => {
       settings = demo ? (await import('./settings.js')).settingsSchema.parse(input) : await saveSettings(settingsFile, input);
+      await applyStartup();
       settingsWarning = ''; alerted.clear(); worker?.postMessage({ type: 'settings', settings }); publish(); return settings;
     });
     handle('panel:refresh', () => { if (Date.now() - lastRefresh >= 5000) { lastRefresh = Date.now(); worker?.postMessage({ type: 'refresh' }); } });

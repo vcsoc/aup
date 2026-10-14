@@ -9,15 +9,18 @@ export interface DayUsage { date: string; tokens: number }
 export interface Usage {
   todayTokens: number; totalTokens: number; prompts: number; sessions: number;
   days: DayUsage[]; models: Record<string, number>;
+  // todayTokens/days/models include cache reads. Undefined means the source
+  // cannot provide a trustworthy cache breakdown (e.g. imported aggregates).
+  todayCachedTokens?: number; sources?: Record<string, number>;
 }
 export interface Resources { cpu: number; memory: number; processes: number }
 export interface Agent {
   id: string; name: string; plan: string; limits: Limit[]; balance?: Balance;
   quotaStatus: string; quotaAt: number; stale: boolean; usage: Usage;
-  resources: Resources; source: string; warnings: string[];
+  resources: Resources; source: string; warnings: string[]; usageNote?: string;
 }
 export interface Settings {
-  networkEnabled: boolean; processEnabled: boolean; localEnabled: boolean;
+  networkEnabled: boolean; processEnabled: boolean; localEnabled: boolean; startAtLogin: boolean;
   refreshSeconds: number; threshold: number; theme: 'system' | 'dark' | 'light';
   paths: Record<ProviderId, string>; importDir: string; codexBinary: string;
 }
@@ -25,7 +28,7 @@ export interface Snapshot {
   agents: Agent[]; updatedAt: number; resourceAt: number; scanning: boolean;
   demo: boolean; errors: string[]; platform: string;
 }
-export interface AppInfo { version: string; settingsPath: string; platform: string }
+export interface AppInfo { version: string; settingsPath: string; platform: string; startupSupported: boolean }
 export interface PanelAPI {
   snapshot(): Promise<Snapshot>;
   settings(): Promise<Settings>;

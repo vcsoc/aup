@@ -13,6 +13,7 @@ export function demoSnapshot(): Snapshot {
     if (id === 'fireworks') agent.balance = { remaining: 17.42, currency: 'USD', estimated: false };
     agent.usage = {
       todayTokens: [184200, 96300, 38400, 67500, 21200, 146000][i], totalTokens: 4200000 + i * 120000,
+      todayCachedTokens: Math.round([184200, 96300, 38400, 67500, 21200, 146000][i] * 0.6),
       prompts: 14 + i * 3, sessions: 12 + i,
       days: days.map((date, day) => ({ date, tokens: [42, 68, 31, 84, 58, 92, 74][day] * (i + 1) * 1000 })),
       models: { [(['claude-opus', 'gpt-codex', 'grok-code', 'kimi', 'deepseek', 'gpt'][i])]: 4200000 },

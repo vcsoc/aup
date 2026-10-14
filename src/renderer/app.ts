@@ -1,5 +1,6 @@
 import './style.css';
 import { providerIds, names, type Agent, type PanelAPI, type Settings, type Snapshot } from '../shared/types';
+import { tokenTotals } from '../shared/usage';
 declare global { interface Window { panel: PanelAPI } }
 const api = window.panel;
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -22,6 +23,9 @@ const robot = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="
 const glyphs: Record<string, string> = { claude: '✳', codex: '⌘', grok: '𝕏', kimi: 'K', fireworks: '✷', pi: 'π' };
 function card(agent: Agent): string {
   const running = agent.resources.processes > 0;
+  const tokens = tokenTotals([agent.usage]);
+  const tokenLabel = tokens.uncached === undefined ? 'Today' : 'Uncached';
+  const tokenTitle = tokens.uncached === undefined ? 'Processed tokens today; cache breakdown unavailable' : `${compact(tokens.uncached)} uncached + ${compact(tokens.cached!)} cached input = ${compact(tokens.processed)} processed today. Not subscription quota.`;
   const isUrgent = urgent(agent);
   const max = Math.max(0, ...agent.usage.days.map(day => day.tokens));
   const models = Object.entries(agent.usage.models).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -40,24 +44,27 @@ function card(agent: Agent): string {
         <strong class="quota-percent">${percent}%</strong><span class="quota-reset" title="${escape(limit.resetsAt)}">${escape(reset(limit.resetsAt))}</span></div>`;
       }).join('')}
       ${agent.balance ? `<div class="balance"><span>${agent.balance.estimated ? 'Estimated credit' : 'Remaining credit'}</span><strong>${escape(agent.balance.currency)} ${agent.balance.remaining.toFixed(2)}</strong></div>` : ''}
-      ${!agent.limits.length && !agent.balance ? `<p class="no-quota" title="${escape(agent.quotaStatus)}">${escape(agent.quotaStatus)}</p>` : ''}
+      ${!agent.limits.length && !agent.balance ? `<p class="no-quota" title="${escape(agent.usageNote || agent.quotaStatus)}">${agent.usageNote ? 'OpenAI usage ↗ Codex · harness metrics below' : escape(agent.quotaStatus)}</p>` : ''}
     </div>
     ${agent.stale ? `<p class="quota-status warning" title="${escape(agent.quotaStatus)}">Stale quota · ${age(agent.quotaAt)}</p>` : ''}
-    <div class="agent-stats"><div class="daily-tokens" title="Tokens today"><span>Today</span><strong>${compact(agent.usage.todayTokens)}</strong></div>
-    <div class="spark" aria-label="Token usage over the last seven days">${agent.usage.days.map(day => `<span style="height:${max ? Math.max(4, day.tokens / max * 100) : 4}%" title="${escape(day.date)}: ${compact(day.tokens)} tokens"></span>`).join('')}</div>
+    <div class="agent-stats"><div class="daily-tokens" title="${escape(tokenTitle)}"><span>${agent.usageNote && !tokens.processed ? 'Usage' : tokenLabel}</span><strong>${agent.usageNote && !tokens.processed ? '↗ Codex' : compact(tokens.uncached ?? tokens.processed)}</strong></div>
+    <div class="spark" aria-label="Processed tokens including cache reads over the last seven days">${agent.usage.days.map(day => `<span style="height:${max ? Math.max(4, day.tokens / max * 100) : 4}%" title="${escape(day.date)}: ${compact(day.tokens)} tokens"></span>`).join('')}</div>
     <div class="resource-inline" title="Agent processes and descendants; CPU is machine capacity, RAM is summed resident memory"><strong>${agent.resources.cpu.toFixed(1)}<small>% CPU</small></strong><span>${memory(agent.resources.memory)} RAM</span></div></div>
     <details data-details="${escape(agent.id)}" ${expanded.has(agent.id) ? 'open' : ''}><summary title="Details for ${escape(agent.name)}">${isUrgent ? '<span class="attention-dot"></span>' : ''}<span class="sr-only">Details for ${escape(agent.name)}</span><span class="detail-toggle" aria-hidden="true">＋</span></summary>
-      <div class="detail-content"><p class="quota-detail ${agent.stale ? 'warning' : ''}">${escape(agent.quotaStatus)} · ${age(agent.quotaAt)}</p><dl><dt>Recorded tokens</dt><dd>${compact(agent.usage.totalTokens)}</dd><dt>Prompts today</dt><dd>${agent.usage.prompts}</dd><dt>Recorded sessions</dt><dd>${agent.usage.sessions}</dd><dt>Active processes</dt><dd>${agent.resources.processes}</dd><dt>Data source</dt><dd>${escape(agent.source)}</dd></dl>
+      <div class="detail-content"><p class="quota-detail ${agent.stale ? 'warning' : ''}">${escape(agent.quotaStatus)} · ${age(agent.quotaAt)}</p>${agent.usageNote ? `<p class="detail-note">${escape(agent.usageNote)}</p>` : ''}<dl><dt>Processed today</dt><dd>${compact(tokens.processed)}</dd><dt>Cached input today</dt><dd>${tokens.cached === undefined ? 'Unknown' : compact(tokens.cached)}</dd><dt>Uncached today</dt><dd>${tokens.uncached === undefined ? 'Unknown' : compact(tokens.uncached)}</dd><dt>Recorded tokens</dt><dd>${compact(agent.usage.totalTokens)}</dd><dt>Prompts today</dt><dd>${agent.usage.prompts}</dd><dt>Recorded sessions</dt><dd>${agent.usage.sessions}</dd><dt>Active processes</dt><dd>${agent.resources.processes}</dd><dt>Data source</dt><dd>${escape(agent.source)}</dd></dl>
+      ${Object.keys(agent.usage.sources || {}).length ? `<h3>Today's sources · processed tokens</h3>${Object.entries(agent.usage.sources!).map(([source, count]) => `<div class="model-row"><span>${escape(source)}</span><strong>${compact(count)}</strong></div>`).join('')}` : ''}
       ${models.length ? `<h3>Models · recorded tokens</h3>${models.map(([model, tokens]) => `<div class="model-row"><span>${escape(model)}</span><strong>${compact(tokens)}</strong></div>`).join('')}` : ''}
       ${agent.warnings.map(warning => `<p class="warning">${escape(warning)}</p>`).join('')}
-      <p class="detail-note">Local history is not a billing ledger. Cached tokens are included once. Imported records replace local figures, never add to them.</p></div>
+      <p class="detail-note">Uncached = input + output excluding cache reads. Processed totals, charts, and model history include cache reads once per request; cached context is shown separately from uncached input/output. Local history is not subscription quota or a billing ledger. Pi/OpenAI Codex requests belong to Codex. Imports replace native figures, never add to them.</p></div>
     </details>
   </article>`;
 }
 function render(): void {
   const focus = (document.activeElement as HTMLElement)?.id;
   const scroll = window.scrollY;
-  const totals = snapshot.agents.reduce((sum, agent) => ({ tokens: sum.tokens + agent.usage.todayTokens, cpu: sum.cpu + agent.resources.cpu, memory: sum.memory + agent.resources.memory, processes: sum.processes + agent.resources.processes }), { tokens: 0, cpu: 0, memory: 0, processes: 0 });
+  const totals = snapshot.agents.reduce((sum, agent) => ({ cpu: sum.cpu + agent.resources.cpu, memory: sum.memory + agent.resources.memory, processes: sum.processes + agent.resources.processes }), { cpu: 0, memory: 0, processes: 0 });
+  const tokens = tokenTotals(snapshot.agents.map(agent => agent.usage));
+  const tokenTitle = tokens.uncached === undefined ? `${compact(tokens.processed)} processed today; cache breakdown unavailable for one or more sources` : `${compact(tokens.uncached)} uncached + ${compact(tokens.cached!)} cached input = ${compact(tokens.processed)} processed today. Not subscription quota.`;
   const agents = snapshot.agents.filter(agent => filter === 'all' || (filter === 'running' ? agent.resources.processes > 0 : urgent(agent)));
   app.innerHTML = `<header class="topbar"><a class="brand" href="#" aria-label="Agent Usage Panel home"><span class="brand-icon">${robot}</span><span>agent usage<span class="brand-suffix"> / panel</span></span></a>
     ${snapshot.demo ? '<span class="demo-badge" title="Sample data only. No credentials, histories, or processes are read.">DEMO MODE</span>' : ''}
@@ -65,7 +72,7 @@ function render(): void {
     <button id="settings" class="icon-button" aria-label="Settings" title="Settings">⚙</button></div></header>
     <main><h1 class="sr-only">Agent Usage Panel</h1>
     ${snapshot.errors.map(error => `<div class="notice" role="status">${escape(error)}</div>`).join('')}
-    <section class="summary-grid" aria-label="Usage summary"><div class="summary-cell"><span>Tokens today</span><strong>${compact(totals.tokens)}</strong></div>
+    <section class="summary-grid" aria-label="Usage summary"><div class="summary-cell" title="${escape(tokenTitle)}"><span>${tokens.uncached === undefined ? 'Processed today' : 'Uncached today'}</span><strong>${compact(tokens.uncached ?? tokens.processed)}</strong>${tokens.cached === undefined ? '<small>cache unknown</small>' : ''}</div>
     <div class="summary-cell" title="${settings.processEnabled ? `${totals.processes} active agent processes · whole-machine CPU capacity` : 'Process monitoring disabled'}"><span>CPU</span><strong>${settings.processEnabled ? totals.cpu.toFixed(1) + '%' : '—'}</strong></div>
     <div class="summary-cell" title="Summed resident memory, not GPU"><span>RAM</span><strong>${settings.processEnabled ? memory(totals.memory) : '—'}</strong></div></section>
     <div class="section-toolbar"><div class="filters" role="group" aria-label="Filter agents">${(['all', 'running', 'attention'] as const).map(key => `<button id="filter-${key}" data-filter="${key}" class="${filter === key ? 'selected' : ''}" aria-pressed="${filter === key}">${key === 'all' ? 'All agents' : key === 'running' ? 'Running' : 'Needs attention'}${key === 'all' ? `<span>${snapshot.agents.length}</span>` : ''}</button>`).join('')}</div><span class="live-label"><i></i> ${snapshot.demo ? 'Preview' : 'On-device'}</span></div>
@@ -88,6 +95,7 @@ async function openSettings(): Promise<void> {
     <label class="toggle-row"><span><strong>CPU & memory monitoring</strong><small>Read the local process table every 5 seconds. Command lines are matched internally and never displayed or saved.</small></span><input type="checkbox" name="processEnabled" ${settings.processEnabled ? 'checked' : ''}></label>
     <label class="toggle-row"><span><strong>Provider quota checks</strong><small>Opt in to HTTPS requests to Anthropic, Grok, Kimi, and Fireworks using existing CLI credentials. Codex runs its own app-server and may renew its login. macOS may ask to unlock Claude's Keychain entry.</small></span><input type="checkbox" name="networkEnabled" ${settings.networkEnabled ? 'checked' : ''}></label>
     <p class="detail-note">The panel never signs you in, refreshes tokens itself, changes accounts, or sends prompts. Imported records are read separately; clear their directory below to disable imports.</p></fieldset>
+    <fieldset><legend>Startup</legend><label class="toggle-row"><span><strong>Launch at login</strong><small>${info.startupSupported ? 'Start monitoring in the menu bar / system tray whenever you sign in after boot. Enabled by default.' : 'Available in the installed app. Demo, development, and test sessions never change OS startup settings.'}</small></span><input type="checkbox" name="startAtLogin" ${settings.startAtLogin ? 'checked' : ''} ${info.startupSupported ? '' : 'disabled'}></label></fieldset>
     <fieldset><legend>Appearance & alerts</legend><div class="form-grid"><label>Theme<select name="theme">${['system', 'dark', 'light'].map(theme => `<option value="${theme}" ${settings.theme === theme ? 'selected' : ''}>${theme[0].toUpperCase() + theme.slice(1)}</option>`).join('')}</select></label><label>Alert at (% used)<input name="threshold" type="number" min="50" max="100" value="${settings.threshold}" required></label><label>Quota check interval (seconds)<input name="refreshSeconds" type="number" min="30" max="3600" value="${settings.refreshSeconds}" required></label></div><p class="detail-note">History refreshes every 15 seconds. Manual quota checks have a 60-second minimum. OS notifications must be allowed for alerts.</p></fieldset>
     <fieldset><legend>CLI directories</legend><p class="detail-note">Absolute paths, not shell expressions. Environment overrides are picked up when the app is first configured. Launch from your terminal to inherit API-key environment variables.</p>
     ${providerIds.map(id => `<label>${names[id]} home<input name="path-${id}" value="${escape(settings.paths[id])}" spellcheck="false" autocomplete="off"></label>`).join('')}
@@ -101,6 +109,7 @@ async function openSettings(): Promise<void> {
     event.preventDefault(); const data = new FormData(event.target as HTMLFormElement);
     const input: Settings = { ...settings,
       localEnabled: data.has('localEnabled'), processEnabled: data.has('processEnabled'), networkEnabled: data.has('networkEnabled'),
+      startAtLogin: info.startupSupported ? data.has('startAtLogin') : settings.startAtLogin,
       theme: data.get('theme') as Settings['theme'], threshold: Number(data.get('threshold')), refreshSeconds: Number(data.get('refreshSeconds')),
       paths: Object.fromEntries(providerIds.map(id => [id, String(data.get(`path-${id}`) || '').trim()])) as Settings['paths'],
       importDir: String(data.get('importDir') || '').trim(), codexBinary: String(data.get('codexBinary') || '').trim(),

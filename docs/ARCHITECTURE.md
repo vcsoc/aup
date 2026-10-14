@@ -6,13 +6,14 @@ OS tray/menu bar + normal desktop window
       Electron main process
       ├── settings (validated, atomic JSON)
       ├── tray state + threshold notifications
+      ├── login startup (native macOS/Windows, XDG Linux)
       ├── exact-sender IPC capability checks
       └── monitoring worker thread
           ├── usage scanner (15s, metadata cache)
           │   ├── Claude transcript request deduplication
           │   ├── Codex native OpenAI rollout counters
           │   ├── Grok completed-turn ledger
-          │   └── Pi session usage
+          │   └── Pi response deduplication + OpenAI Codex attribution
           ├── quota collector (per-provider cache)
           │   ├── fixed-host HTTPS, opt-in only
           │   └── Codex line-delimited app-server RPC
@@ -37,6 +38,18 @@ buckets for every scan, so midnight doesn't leave yesterday's counts in Today.
 Settings changes invalidate usage caches and clear the display immediately. A
 generation check discards old in-flight results. Resource sampling is independent
 of quota requests and scanning, so a slow provider doesn't freeze the renderer.
+
+Usage is grouped by backend rather than blindly summed by harness: Pi messages
+with provider `openai-codex` join the Codex event bucket before deduplication.
+Other Pi providers stay in Pi. Full provider response identities are hashed in
+the worker (never truncated or sent to the renderer); copied Pi entry IDs plus
+timestamp are a fallback. Distinct requests sharing a subscription are not
+collapsed. Native Codex logs lacking a shared response ID cannot establish
+cross-harness identity. Snapshot `sources` are display-only daily aggregates.
+`todayTokens`, charts, and model history remain cache-inclusive; the renderer
+shows `todayTokens - todayCachedTokens` as **Uncached today** only when all
+nonempty sources have a known breakdown. Missing cache data stays unknown.
+Pi resource attribution is unchanged and never counted again under Codex.
 
 `src/main/quotas.ts` binds cache identity to the selected home and credentials.
 Only successful checks advance `at`; failures retain the same identity's last
@@ -64,7 +77,14 @@ provider replaces the native record. Imported accounts receive their own limits
 but not another copy of the provider's usage. Unknown providers need no UI edits.
 
 `src/main/main.ts` owns windows, the tray, notifications, IPC, and worker lifecycle.
-It restarts failed workers at most three times. It never starts a shell or a local
+`src/main/startup.ts` reconciles the default-on login preference using native
+macOS/Windows login items or an atomic, escaped XDG `.desktop` entry on Linux.
+Linux AppImages register their persistent image rather than the transient mount.
+Windows/Linux use `--startup`; macOS checks the native login-launch flag. Login
+launches remain hidden if a tray is available. Startup registration is disabled
+for unpackaged, demo, and smoke runs; OS refusal is surfaced, not swallowed.
+
+The main process restarts failed workers at most three times. It never starts a shell or a local
 web server. `assets/preload.cjs` exposes only seven request capabilities and one
 snapshot subscription to a context-isolated, sandboxed renderer.
 

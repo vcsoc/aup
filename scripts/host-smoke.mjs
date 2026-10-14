@@ -14,6 +14,9 @@ try {
   const dir = path.join(settings.paths.claude, 'projects', 'fixture'); await mkdir(dir, { recursive: true });
   await writeFile(path.join(settings.paths.claude, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'FIXTURE-TOKEN-DO-NOT-RENDER' } }));
   await writeFile(path.join(dir, 'session.jsonl'), JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), requestId: 'r', sessionId: 's', message: { id: 'm', model: 'fixture-model', content: 'PRIVATE-FIXTURE-CONTENT', usage: { input_tokens: 10, output_tokens: 20 } } }) + '\n');
+  const piDir = path.join(settings.paths.pi, 'sessions'); await mkdir(piDir, { recursive: true });
+  const pi = { type: 'message', id: 'pi-entry', timestamp: new Date().toISOString(), message: { role: 'assistant', provider: 'openai-codex', responseId: 'PRIVATE-RESPONSE-ID', content: 'PRIVATE-PI-CONTENT', usage: { input: 10, output: 20, cacheRead: 70 } } };
+  for (const file of ['original', 'copy']) await writeFile(path.join(piDir, `${file}.jsonl`), JSON.stringify(pi) + '\n');
   await mkdir(settings.importDir); const maliciousName = '<img src=x onerror="window.injected=true">';
   await writeFile(path.join(settings.importDir, 'custom.json'), JSON.stringify({ id: 'custom', name: maliciousName, todayTotalTokens: 42 }));
   app = await electron.launch({ args, executablePath: process.env.AUP_EXECUTABLE || undefined, timeout: 30000 });
@@ -26,8 +29,22 @@ try {
   expect(await page.locator('.agent-card').evaluateAll(cards => cards.every(card => card.getBoundingClientRect().height <= 70))).toBe(true);
   await expect(page.getByRole('heading', { name: maliciousName, exact: true })).toBeVisible();
   expect(await page.locator('img').count()).toBe(0); expect(await page.evaluate(() => window.injected)).toBeUndefined();
+  const codex = page.locator('[data-agent=codex]');
+  await expect(codex.locator('.daily-tokens')).toContainText('Uncached30');
+  await expect(page.locator('[data-agent=pi] .daily-tokens')).toContainText('↗ Codex');
+  await expect(page.locator('[data-agent=pi] .no-quota')).toContainText('harness metrics');
+  await codex.locator('summary').click();
+  await expect(codex.locator('.detail-content')).toContainText('Processed today100');
+  await expect(codex.locator('.detail-content')).toContainText('Cached input today70');
+  await expect(codex.locator('.detail-content')).toContainText('Pi (OpenAI Codex)100');
+  await codex.locator('summary').click();
+  // The custom imported record has no cache breakdown: do not call the mixed
+  // summary uncached or silently subtract an assumed zero cache count.
+  await expect(page.locator('.summary-cell').first()).toContainText('Processed today');
+  await expect(page.locator('.summary-cell').first()).toContainText('172');
   const serialized = await page.evaluate(async () => JSON.stringify(await window.panel.snapshot()));
   expect(serialized).not.toContain('FIXTURE-TOKEN'); expect(serialized).not.toContain('PRIVATE-FIXTURE-CONTENT');
+  expect(serialized).not.toContain('PRIVATE-PI-CONTENT'); expect(serialized).not.toContain('PRIVATE-RESPONSE-ID');
   const networkBlocked = await page.evaluate(async () => { try { await fetch('https://example.com'); return false; } catch { return true; } });
   expect(networkBlocked).toBe(true);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();

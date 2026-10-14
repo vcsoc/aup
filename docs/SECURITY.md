@@ -30,6 +30,14 @@ Only usage metadata is cached in memory. JavaScript memory is garbage-collected,
 not a secure zeroization facility. Settings can reveal local directory names and
 are saved under the app's normal user-data directory.
 
+The installed app enables login startup by default. This writes only its own
+native macOS/Windows login item or Linux XDG autostart entry; Settings can remove
+it. No system-wide service, privilege escalation, watchdog, or scheduled task is
+installed. Demo, development, and smoke sessions never register startup items.
+OS policy can override this preference. Linux executable paths are quoted and
+escaped as desktop-entry arguments (including percent field codes); no shell
+command is used.
+
 Demo mode starts no monitoring worker, makes no credential/usage/process reads,
 and doesn't persist settings. Like any Electron app, Chromium may still write
 ordinary runtime/cache files in its profile; "no usage persistence" does not mean

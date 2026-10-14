@@ -21,13 +21,22 @@ async function scan(force = false): Promise<void> {
     const imported = await importRecords(currentSettings.importDir);
     const imports = new Map(imported.agents.map(agent => [agent.id, agent]));
     const agents = await Promise.all(providerIds.map(async id => {
-      if (imports.has(id)) return imports.get(id)!;
+      if (imports.has(id)) {
+        const importedAgent = imports.get(id)!;
+        if (id === 'codex' && local.piUsesCodex) importedAgent.warnings.push('Imported Codex totals replace native Codex and Pi/OpenAI Codex history; Pi coverage cannot be verified.');
+        return importedAgent;
+      }
       const agent = newAgent(id, names[id]);
       const quota = await quotas.collect(id, currentSettings, force);
       Object.assign(agent, { limits: quota.limits, balance: quota.balance, plan: quota.plan, quotaStatus: quota.status, quotaAt: quota.at, stale: quota.stale });
       agent.usage = local.usage[id] || agent.usage;
       agent.warnings = local.warnings[id] || [];
       agent.source = currentSettings.localEnabled ? 'Local CLI history' : 'Local history off';
+      if (local.piUsesCodex && id === 'codex') agent.source = 'Codex CLI + Pi (OpenAI Codex)';
+      if (local.piUsesCodex && id === 'pi') {
+        agent.name = 'Pi (harness)';
+        agent.usageNote = 'OpenAI Codex usage is included in Codex. This row shows other Pi providers and harness resources.';
+      }
       return agent;
     }));
     for (const agent of imported.agents) if (!providerIds.includes(agent.id as typeof providerIds[number])) agents.push(agent);

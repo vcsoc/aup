@@ -22,6 +22,9 @@ try {
   expect(await page.evaluate(() => [...document.fonts].some(font => font.family === 'JetBrains Mono' && font.status === 'loaded'))).toBe(true);
   await expect(page.getByText('DEMO MODE', { exact: true })).toBeVisible();
   await expect(page.locator('.agent-card')).toHaveCount(6);
+  await expect(page.locator('.summary-cell').first()).toContainText('Uncached today');
+  await expect(page.locator('.summary-cell').first()).toContainText('cached');
+  await expect(page.locator('.daily-tokens').first()).toContainText('Uncached');
   expect(await page.evaluate(() => ({ require: typeof window.require, process: typeof window.process, fs: typeof window.panel.readFile }))).toEqual({ require: 'undefined', process: 'undefined', fs: 'undefined' });
   const capabilities = await app.evaluate(({ BrowserWindow }) => {
     const prefs = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
@@ -36,6 +39,8 @@ try {
   await page.getByRole('button', { name: /All agents/ }).click();
   await page.locator('details').first().locator('summary').click();
   await expect(page.getByText('Recorded tokens', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Processed today', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Cached input today', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.locator('select[name=theme]').selectOption('dark');
@@ -44,6 +49,8 @@ try {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   const actual = await page.evaluate(() => window.panel.settings());
   expect(actual.networkEnabled).toBe(false);
+  expect(actual.startAtLogin).toBe(true); // Disabled test/demo toggle must preserve the preference.
+  expect((await page.evaluate(() => window.panel.info())).startupSupported).toBe(false);
   expect(actual.theme).toBe('dark');
   // Simulate malicious imported display strings through the same snapshot API.
   await page.evaluate(async () => {

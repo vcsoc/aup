@@ -33,6 +33,16 @@ macOS also shows the highest current quota percentage beside the icon. Closing
 the window keeps monitoring; **Quit app** actually exits. `R` refreshes,
 `Esc` hides the panel, and `Ctrl/Cmd+,` opens settings.
 
+**The installed app starts automatically when you log in after boot.** It uses
+macOS native Login Items, Windows startup registration, or an XDG autostart entry
+on Linux. Login launches stay in the tray/menu bar (unless a tray is unavailable).
+Settings → **Launch at login** turns this off. Existing settings are migrated
+without resetting your preferences. Demo/development/test sessions never change
+OS startup settings. OS policy/permissions can block startup; failures appear in
+the panel. Keep Linux AppImages at a stable path; launch the app after moving one
+to update its registration. This is desktop login startup, not a system service
+running before anybody signs in.
+
 **Network quota checks are off initially.** Open Settings to enable them. Local
 history and CPU/RAM monitoring are on and can be independently disabled.
 
@@ -41,11 +51,11 @@ history and CPU/RAM monitoring are on and can be independently disabled.
 | Provider | Subscription / credit information | Local token history | CPU / RAM |
 | --- | --- | --- | --- |
 | Claude Code | OAuth 5-hour, weekly, and model-specific windows | `projects/**/*.jsonl` | CLI and descendants |
-| Codex | CLI app-server rate-limit windows and plan | `sessions/**/*.jsonl`, OpenAI provider only | CLI and descendants |
+| Codex | CLI app-server rate-limit windows and plan | Native OpenAI rollouts + Pi `openai-codex` requests | CLI and descendants |
 | Grok | Included weekly/monthly credit percentage | `sessions/**/usage.json` | CLI and descendants |
 | Kimi Code | Current and legacy quota response formats | Not collected | CLI and descendants |
 | Fireworks | Live balance when the key has billing permission | Import Omarchy billing statistics | Not separately attributable |
-| Pi | No single subscription quota: it is multi-provider | `sessions/**/*.jsonl` | CLI and descendants |
+| Pi (harness) | Multi-provider; Codex subscription usage belongs to Codex | Other Pi providers remain here | Pi CLI and descendants |
 | Other agents | Import a display-ready Omarchy record | From that record | No automatic detection |
 
 Each card has quota meters, reset countdowns, token counts, seven-day activity,
@@ -53,6 +63,32 @@ CPU/RAM, and expandable model statistics. A configurable threshold (90% by
 default) marks high usage and sends an OS notification once per crossing/window.
 Stale quota is dimmed and **does not trigger alerts**. Notification delivery
 requires OS permission. Prepaid balances are displayed, not used for alerts.
+
+### Understanding the token counts
+
+- **Uncached today** is input + output minus cached input reads. Cache creation
+  remains uncached input. This is the main figure when a breakdown is available.
+- **Processed today** includes cached reads once per request. A long conversation
+  can reuse its context many times, making this much larger than uncached tokens.
+  Expand **+** for uncached/cached/processed figures and today's source breakdown;
+  hover the summary for the same distinction. Charts/models remain cache-inclusive.
+- Pi messages explicitly marked `openai-codex` are grouped under **Codex**, not
+  added again to Pi. Pi's CPU/RAM remain harness metrics, with a pointer to Codex;
+  other Pi backends (including ordinary OpenAI API usage) remain separate.
+- Copied Pi transcripts/partial messages are deduplicated using stable response
+  IDs, or entry IDs plus timestamp. Explicit shared response IDs deduplicate
+  across native/Pi logs. Different requests are **not** discarded just because
+  they use the same model, subscription, or token counts. Native rollout formats
+  without shared request IDs cannot prove cross-log overlap.
+- Imported aggregates and old total-only records may not expose cached reads.
+  Their breakdown is **unknown**, not zero; the summary then honestly switches to
+  **Processed today**. An imported Codex record replaces native Codex **and**
+  Pi/OpenAI Codex totals, with a warning that its Pi coverage cannot be verified.
+
+These are retained local-history estimates, **not subscription quota, unique
+words, billed spend, or an account-level ledger**. Provider quota percentages
+come from separate opt-in checks. Using the same subscription does not itself
+mean two logged requests are duplicates.
 
 ### Credentials and paths
 
@@ -167,16 +203,19 @@ installers. A local repository has no hosted CI until you push it to a remote.
   missed. Only known CLI names or package entrypoints are matched; no arbitrary
   substring guessing. The monitor and its quota-probe descendants are excluded.
 - Token totals cover **retained local files**, not provider invoices. Claude
-  streaming messages and repeated Codex cumulative updates are deduplicated.
-  Cached input and reasoning are not counted a second time. Pi is reported
-  separately, even when it uses an Anthropic/OpenAI model.
+  streaming messages, copied Pi responses, and repeated Codex cumulative updates
+  are deduplicated. Cache/reasoning subcategories are never added twice.
+  Pi/OpenAI Codex usage is attributed to Codex; other Pi backends stay separate.
+  See the token definitions above before interpreting large processed totals.
 - A file metadata cache avoids reparsing unchanged histories, in a worker off
   the UI thread. Scans don't follow nested symlinks. File/line/traversal limits
   prevent runaway scans and surface partial-total warnings. Missing homes are
   normal; unreadable or oversized sessions are reported.
 - No telemetry, analytics, cloud account, local HTTP server, or persisted usage
-  database. Only settings are written by the app, atomically with private POSIX
-  file permissions (Windows inherits the user-profile ACL).
+  database. The app writes settings atomically with private POSIX permissions
+  (Windows inherits the profile ACL), and manages its own OS login/startup entry.
+  Linux uses `$XDG_CONFIG_HOME/autostart/io.agentusage.panel.desktop` (or
+  `~/.config/autostart/`); opt-out removes only this app's entry.
 - Process command lines and transcript content are transient input. Only token
   metadata and aggregated metrics reach the renderer; credentials are neither
   displayed, logged, nor stored by this app.
@@ -188,7 +227,7 @@ installers. A local repository has no hosted CI until you push it to a remote.
 ## Development and verification
 
 ```sh
-npm run check         # strict TypeScript, 51 unit/integration cases, production build
+npm run check         # strict TypeScript, unit/integration cases, production build
 npm run test:smoke    # isolated real worker + real Electron UI tests, screenshots
 npm audit             # runtime and development dependency audit
 ```

@@ -47,6 +47,26 @@ describe('session parsers', () => {
     await appendFile(file, '\n'); expect(await parseSession(file, 'claude')).toHaveLength(2);
   });
 });
+describe('Pi request identity', () => {
+  it('deduplicates copied sessions and partial rows by provider response ID', async () => {
+    const message = (input: number) => ({ type: 'message', id: `entry-${input}`, timestamp: time, message: { role: 'assistant', provider: 'openai-codex', responseId: 'shared-response', model: 'gpt', usage: { input, output: 20, cacheRead: 30, cacheWrite: 40 } } });
+    const first = await parseSession(await fixture([message(5), message(10)]), 'pi');
+    const copy = await parseSession(await fixture([message(10)]), 'pi');
+    const usage = summarize([...first, ...copy], new Date(time));
+    expect(usage.todayTokens).toBe(100); expect(usage.todayCachedTokens).toBe(30);
+    expect(usage.sources).toEqual({ 'Pi (OpenAI Codex)': 100 });
+  });
+  it('does not truncate long response IDs into false duplicates', async () => {
+    const row = (suffix: string) => ({ type: 'message', timestamp: time, message: { role: 'assistant', provider: 'openai-codex', responseId: 'prefix'.repeat(40) + suffix, usage: { input: 10, output: 20 } } });
+    expect(summarize(await parseSession(await fixture([row('one'), row('two')]), 'pi'), new Date(time)).todayTokens).toBe(60);
+  });
+  it('deduplicates copied entry IDs without a response ID, but not separate requests with identical counts', async () => {
+    const row = { type: 'message', id: 'entry', timestamp: time, message: { role: 'assistant', provider: 'openai-codex', usage: { input: 10, output: 20 } } };
+    const first = await parseSession(await fixture([row]), 'pi');
+    const second = await parseSession(await fixture([row, { ...row, id: 'distinct-entry' }]), 'pi');
+    expect(summarize([...first, ...second], new Date(time)).todayTokens).toBe(60);
+  });
+});
 describe('aggregation', () => {
   const event: Event = { id: '1', time, session: 's1', model: 'model', tokens: 100 };
   it('deduplicates copied messages using their fullest usage', () => {
@@ -61,6 +81,12 @@ describe('aggregation', () => {
     const usage = summarize([event, { ...event, id: '2', time: yesterday.toISOString() }, { ...event, id: 'p', tokens: 0, prompt: true }], new Date(time));
     expect(usage.todayTokens).toBe(100); expect(usage.totalTokens).toBe(200); expect(usage.prompts).toBe(1); expect(usage.days).toHaveLength(7);
   });
+  it('tracks cached reads separately, keeps cache writes in uncached tokens, and preserves unknown breakdowns', () => {
+    const yesterday = new Date(time); yesterday.setDate(yesterday.getDate() - 1);
+    const usage = summarize([{ ...event, cacheReadTokens: 30 }, { ...event, id: 'old', time: yesterday.toISOString() }], new Date(time));
+    expect(usage.todayTokens).toBe(100); expect(usage.todayCachedTokens).toBe(30);
+    expect(summarize([event], new Date(time)).todayCachedTokens).toBeUndefined();
+  });
   it('ignores invalid timestamps', () => { expect(summarize([{ ...event, time: 'bad' }]).totalTokens).toBe(0); });
   it('has seven local date keys across month boundaries', () => {
     expect(recentDays(new Date(2026, 10, 2, 12))).toEqual(['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02']);
@@ -68,6 +94,37 @@ describe('aggregation', () => {
   });
 });
 describe('scanner cache', () => {
+  it('attributes Pi OAuth usage to Codex once, without merging generic OpenAI or other Pi providers', async () => {
+    const settings = defaultSettings({}, await temp());
+    for (const provider of ['pi', 'codex'] as const) await mkdir(path.join(settings.paths[provider], 'sessions'), { recursive: true });
+    const pi = (id: string, provider: string) => ({ type: 'message', id, timestamp: time, message: { role: 'assistant', provider, responseId: id, model: 'gpt', usage: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40 } } });
+    await writeFile(path.join(settings.paths.pi, 'sessions', 'pi.jsonl'), [pi('subscription', 'openai-codex'), pi('api', 'openai'), pi('local', 'ollama')].map(row => JSON.stringify(row)).join('\n') + '\n');
+    await writeFile(path.join(settings.paths.codex, 'sessions', 'native.jsonl'), JSON.stringify(codex()) + '\n');
+    const scanner = new UsageScanner();
+    for (let i = 0; i < 2; i++) {
+      const result = await scanner.scan(settings, new Date(time));
+      expect(result.piUsesCodex).toBe(true);
+      expect(result.usage.codex?.todayTokens).toBe(200); expect(result.usage.codex?.todayCachedTokens).toBe(80);
+      expect(result.usage.codex?.sources).toEqual({ 'Codex CLI': 100, 'Pi (OpenAI Codex)': 100 });
+      expect(result.usage.pi?.todayTokens).toBe(200);
+      expect(Object.values(result.usage).reduce((sum, usage) => sum + usage.todayTokens, 0)).toBe(400);
+    }
+  });
+  it('deduplicates a shared Codex response across native and Pi logs only when an explicit ID matches', async () => {
+    const settings = defaultSettings({}, await temp());
+    for (const provider of ['pi', 'codex'] as const) await mkdir(path.join(settings.paths[provider], 'sessions'), { recursive: true });
+    const native = codex(); Object.assign(native.payload, { response_id: 'same-response' });
+    await writeFile(path.join(settings.paths.codex, 'sessions', 'native.jsonl'), JSON.stringify(native) + '\n');
+    const pi = { type: 'message', id: 'entry', timestamp: time, message: { role: 'assistant', provider: 'openai-codex', responseId: 'same-response', usage: { input: 30, output: 20, cacheRead: 50 } } };
+    await writeFile(path.join(settings.paths.pi, 'sessions', 'pi.jsonl'), JSON.stringify(pi) + '\n');
+    const result = await new UsageScanner().scan(settings, new Date(time));
+    expect(result.usage.codex?.todayTokens).toBe(100); expect(result.usage.codex?.todayCachedTokens).toBe(50); expect(result.usage.pi?.todayTokens).toBe(0);
+  });
+  it('keeps an old Pi total-only record cache-inclusive with an unknown breakdown', async () => {
+    const events = await parseSession(await fixture([{ type: 'message', timestamp: time, message: { role: 'assistant', provider: 'openai-codex', usage: { totalTokens: 100 } } }]), 'pi');
+    expect(events[0].billingProvider).toBe('codex');
+    expect(summarize(events, new Date(time)).todayCachedTokens).toBeUndefined();
+  });
   it('reuses, invalidates, and evicts session data after append and deletion', async () => {
     const home = await temp(); const settings = defaultSettings({}, home); settings.importDir = '';
     const dir = path.join(settings.paths.claude, 'projects', 'project'); await mkdir(dir, { recursive: true }); const file = path.join(dir, 'session.jsonl');
