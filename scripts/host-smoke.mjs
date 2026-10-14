@@ -1,0 +1,38 @@
+import { _electron as electron, expect } from '@playwright/test';
+import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { defaultSettings } from '../dist/main/settings.js';
+const home = await mkdtemp(path.join(os.tmpdir(), 'aup-host-'));
+const profile = path.join(home, 'profile');
+const args = [...(process.env.AUP_EXECUTABLE ? [] : ['.']), '--smoke', `--user-data-dir=${profile}`];
+if (process.platform === 'linux' && process.env.CI) args.push('--no-sandbox');
+let app;
+try {
+  const settings = defaultSettings({}, home); settings.processEnabled = false; settings.importDir = path.join(home, 'imports');
+  await mkdir(profile); await writeFile(path.join(profile, 'settings.json'), JSON.stringify(settings));
+  const dir = path.join(settings.paths.claude, 'projects', 'fixture'); await mkdir(dir, { recursive: true });
+  await writeFile(path.join(settings.paths.claude, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'FIXTURE-TOKEN-DO-NOT-RENDER' } }));
+  await writeFile(path.join(dir, 'session.jsonl'), JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), requestId: 'r', sessionId: 's', message: { id: 'm', model: 'fixture-model', content: 'PRIVATE-FIXTURE-CONTENT', usage: { input_tokens: 10, output_tokens: 20 } } }) + '\n');
+  await mkdir(settings.importDir); const maliciousName = '<img src=x onerror="window.injected=true">';
+  await writeFile(path.join(settings.importDir, 'custom.json'), JSON.stringify({ id: 'custom', name: maliciousName, todayTotalTokens: 42 }));
+  app = await electron.launch({ args, executablePath: process.env.AUP_EXECUTABLE || undefined, timeout: 30000 });
+  const page = await app.firstWindow(); const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const usedProfile = await app.evaluate(({ app }) => app.getPath('userData'));
+  expect(await realpath(usedProfile)).toBe(await realpath(profile));
+  await expect.poll(async () => page.evaluate(async () => (await window.panel.snapshot()).agents.find(a => a.id === 'claude').usage.todayTokens), { timeout: 20000 }).toBe(30);
+  await expect(page.locator('.agent-card')).toHaveCount(7);
+  await expect(page.getByRole('heading', { name: maliciousName, exact: true })).toBeVisible();
+  expect(await page.locator('img').count()).toBe(0); expect(await page.evaluate(() => window.injected)).toBeUndefined();
+  const serialized = await page.evaluate(async () => JSON.stringify(await window.panel.snapshot()));
+  expect(serialized).not.toContain('FIXTURE-TOKEN'); expect(serialized).not.toContain('PRIVATE-FIXTURE-CONTENT');
+  const networkBlocked = await page.evaluate(async () => { try { await fetch('https://example.com'); return false; } catch { return true; } });
+  expect(networkBlocked).toBe(true);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.locator('input[name=threshold]').fill('95');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  expect(JSON.parse(await readFile(path.join(profile, 'settings.json'), 'utf8')).threshold).toBe(95);
+  expect(errors).toEqual([]);
+  console.log('PASS: real Electron host + monitoring worker, isolated persisted settings, fixture token usage, real imported-XSS escaping, credential/content projection, renderer network denial.');
+} finally { await app?.close(); await rm(home, { recursive: true, force: true }); }
