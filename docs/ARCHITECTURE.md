@@ -109,6 +109,11 @@ Windows/Linux use `--startup`; macOS checks the native login-launch flag. Login
 launches remain hidden if a tray is available. Startup registration is disabled
 for unpackaged, demo, and smoke runs; OS refusal is surfaced, not swallowed.
 
+`src/main/tray-menu.ts` keeps the macOS menu unattached: AppKit otherwise opens
+it on left-click as well. Only `right-click` explicitly pops that menu; the
+existing left-click handler exclusively toggles the panel. Windows/Linux keep
+native menu attachment (required for Linux StatusNotifier integration).
+
 The main process restarts failed workers at most three times. It never starts a
 shell or a local web server. `assets/preload.cjs` exposes nine fixed request
 capabilities and one snapshot subscription. New capabilities request a fixed

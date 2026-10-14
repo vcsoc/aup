@@ -40,7 +40,8 @@ used just because their file was refreshed. Stats provider totals (and providers
 within each day) sort by selected-range/day token usage descending.
 
 The panel opens immediately, with a robot icon in the menu bar / system tray.
-Click it to show or hide the panel; right-click for Open, Refresh, and Quit.
+Left-click it to show or hide only the panel; right-click for Open, Refresh,
+and Quit. On macOS, left-click never opens the context menu.
 macOS also shows the highest current quota percentage beside the icon. Closing
 the window keeps monitoring; **Quit app** actually exits. `R` refreshes,
 `Esc` hides the panel, and `Ctrl/Cmd+,` opens settings.

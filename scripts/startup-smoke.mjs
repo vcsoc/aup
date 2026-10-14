@@ -28,6 +28,7 @@ try {
     await app.evaluate(({ Tray }) => {
       const setImage = Tray.prototype.setImage;
       Tray.prototype.setImage = function(image) {
+        globalThis.__nativeTray = this;
         globalThis.__trayCheck = { empty: image.isEmpty(), template: image.isTemplateImage(), pixels: image.toBitmap().some((value, i) => i % 4 === 3 && value > 0), bounds: this.getBounds(), title: this.getTitle(), destroyed: this.isDestroyed() };
         return setImage.call(this, image);
       };
@@ -38,6 +39,22 @@ try {
     if (process.platform === 'darwin') {
       expect(nativeTray.template).toBe(true); expect(nativeTray.title).toBe('');
       expect(nativeTray.bounds.width).toBeGreaterThan(0); expect(nativeTray.bounds.height).toBeGreaterThan(0);
+      const clicks = await app.evaluate(({ BrowserWindow }) => {
+        const tray = globalThis.__nativeTray, window = BrowserWindow.getAllWindows()[0];
+        const popup = tray.popUpContextMenu; let menus = 0; let actions = [];
+        tray.popUpContextMenu = menu => { menus++; actions = menu.items.filter(item => item.type !== 'separator').map(item => item.label); };
+        const visible = [], menuCounts = [];
+        try {
+          window.hide();
+          for (const event of ['click', 'click', 'right-click', 'click']) {
+            tray.emit(event, {}, tray.getBounds()); visible.push(window.isVisible()); menuCounts.push(menus);
+          }
+          return { visible, menuCounts, actions };
+        } finally { tray.popUpContextMenu = popup; window.hide(); }
+      });
+      expect(clicks.visible).toEqual([true, false, false, true]);
+      expect(clicks.menuCounts).toEqual([0, 0, 1, 1]);
+      expect(clicks.actions).toEqual(['Open Agent Usage Panel', 'Refresh usage', 'Quit']);
     }
   }
   // Reopening the app still reveals a hidden login-started panel.
@@ -46,5 +63,5 @@ try {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.locator('input[name=startAtLogin]')).toBeChecked();
   await expect(page.locator('input[name=startAtLogin]')).toBeDisabled();
-  console.log('PASS: native nonempty menu-bar icon (macOS template/bounds), background login launch, tray fallback, reopen, settings migration, and smoke isolation from OS startup registration.');
+  console.log('PASS: native nonempty menu-bar icon, macOS left-click window-only/right-click menu dispatch, background login launch, tray fallback, reopen, settings migration, and smoke isolation from OS startup registration.');
 } finally { await app?.close(); await rm(home, { recursive: true, force: true }); }

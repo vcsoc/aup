@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { demoSnapshot } from './demo.js';
 import { configureStartup, type StartupResult } from './startup.js';
+import { configureTrayMenu } from './tray-menu.js';
 import { homedir } from 'node:os';
 import { names, newAgent, providerIds, type Settings, type Snapshot } from '../shared/types.js';
 
@@ -156,7 +157,7 @@ else {
     createWindow();
     try {
       tray = new Tray(icon());
-      tray.setContextMenu(Menu.buildFromTemplate([
+      configureTrayMenu(tray, Menu.buildFromTemplate([
         { label: 'Open Agent Usage Panel', click: () => show(true) },
         { label: 'Refresh usage', click: () => worker?.postMessage({ type: 'refresh' }) },
         { type: 'separator' }, { label: 'Quit', click: () => app.quit() },
