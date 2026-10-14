@@ -28,25 +28,26 @@ function card(agent: Agent): string {
   return `<article class="agent-card ${agent.stale ? 'stale' : ''}" data-agent="${escape(agent.id)}">
     <div class="agent-heading">
       <div class="agent-mark mark-${escape(agent.id.split('/')[0])}" aria-hidden="true">${glyphs[agent.id.split('/')[0]] || '◈'}</div>
-      <div class="agent-identity"><h2>${escape(agent.name)}</h2><span>${escape(agent.plan || (agent.id === 'pi' ? 'Multi-provider CLI' : 'CLI subscription'))}</span></div>
+      <div class="agent-identity"><h2 title="${escape(agent.name)}">${escape(agent.name)}</h2>${agent.plan ? `<span title="${escape(agent.plan)}">${escape(agent.plan)}</span>` : ''}</div>
       <span class="status-pill ${running ? 'running' : ''}">${running ? '<i></i> Running' : 'Idle'}</span>
     </div>
     <div class="quota-area">
       ${agent.limits.map(limit => {
         const percent = Math.round(limit.percent * 100); const high = percent >= settings.threshold;
-        return `<div class="quota-row ${high ? 'high' : ''}"><div class="quota-label"><span>${escape(limit.label)}</span><strong>${percent}<small>%</small></strong></div>
+        return `<div class="quota-row ${high ? 'high' : ''}" title="${escape(limit.label)}: ${percent}% used · ${escape(reset(limit.resetsAt))}${agent.stale ? ' · stale' : ''}">
+        <span class="quota-label">${escape(limit.label)}</span>
         <div class="meter" role="progressbar" aria-label="${escape(limit.label)} quota used" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><span style="width:${percent}%"></span></div>
-        <div class="quota-reset" title="${escape(limit.resetsAt)}">${escape(reset(limit.resetsAt))}${agent.stale ? ' · stale' : ''}</div></div>`;
+        <strong class="quota-percent">${percent}%</strong><span class="quota-reset" title="${escape(limit.resetsAt)}">${escape(reset(limit.resetsAt))}</span></div>`;
       }).join('')}
       ${agent.balance ? `<div class="balance"><span>${agent.balance.estimated ? 'Estimated credit' : 'Remaining credit'}</span><strong>${escape(agent.balance.currency)} ${agent.balance.remaining.toFixed(2)}</strong></div>` : ''}
-      ${!agent.limits.length && !agent.balance ? `<div class="no-quota"><span>${agent.id === 'pi' ? 'Every model. One place.' : 'No quota data yet'}</span><p>${escape(agent.quotaStatus)}</p></div>` : ''}
+      ${!agent.limits.length && !agent.balance ? `<p class="no-quota" title="${escape(agent.quotaStatus)}">${escape(agent.quotaStatus)}</p>` : ''}
     </div>
-    ${agent.limits.length || agent.balance ? `<p class="quota-status ${agent.stale ? 'warning' : ''}" title="${escape(agent.quotaStatus)}">${agent.stale ? '⚠ ' : ''}${escape(agent.quotaStatus)} · ${age(agent.quotaAt)}</p>` : ''}
-    <div class="agent-stats"><div><span>Tokens today</span><strong>${compact(agent.usage.todayTokens)}</strong></div>
+    ${agent.stale ? `<p class="quota-status warning" title="${escape(agent.quotaStatus)}">Stale quota · ${age(agent.quotaAt)}</p>` : ''}
+    <div class="agent-stats"><div class="daily-tokens" title="Tokens today"><span>Today</span><strong>${compact(agent.usage.todayTokens)}</strong></div>
     <div class="spark" aria-label="Token usage over the last seven days">${agent.usage.days.map(day => `<span style="height:${max ? Math.max(4, day.tokens / max * 100) : 4}%" title="${escape(day.date)}: ${compact(day.tokens)} tokens"></span>`).join('')}</div>
     <div class="resource-inline" title="Agent processes and descendants; CPU is machine capacity, RAM is summed resident memory"><strong>${agent.resources.cpu.toFixed(1)}<small>% CPU</small></strong><span>${memory(agent.resources.memory)} RAM</span></div></div>
-    <details data-details="${escape(agent.id)}" ${expanded.has(agent.id) ? 'open' : ''}><summary>${isUrgent ? '<span class="attention-dot"></span>' : ''} Details <span>＋</span></summary>
-      <div class="detail-content"><dl><dt>Recorded tokens</dt><dd>${compact(agent.usage.totalTokens)}</dd><dt>Prompts today</dt><dd>${agent.usage.prompts}</dd><dt>Recorded sessions</dt><dd>${agent.usage.sessions}</dd><dt>Active processes</dt><dd>${agent.resources.processes}</dd><dt>Data source</dt><dd>${escape(agent.source)}</dd></dl>
+    <details data-details="${escape(agent.id)}" ${expanded.has(agent.id) ? 'open' : ''}><summary title="Details for ${escape(agent.name)}">${isUrgent ? '<span class="attention-dot"></span>' : ''}<span class="sr-only">Details for ${escape(agent.name)}</span><span class="detail-toggle" aria-hidden="true">＋</span></summary>
+      <div class="detail-content"><p class="quota-detail ${agent.stale ? 'warning' : ''}">${escape(agent.quotaStatus)} · ${age(agent.quotaAt)}</p><dl><dt>Recorded tokens</dt><dd>${compact(agent.usage.totalTokens)}</dd><dt>Prompts today</dt><dd>${agent.usage.prompts}</dd><dt>Recorded sessions</dt><dd>${agent.usage.sessions}</dd><dt>Active processes</dt><dd>${agent.resources.processes}</dd><dt>Data source</dt><dd>${escape(agent.source)}</dd></dl>
       ${models.length ? `<h3>Models · recorded tokens</h3>${models.map(([model, tokens]) => `<div class="model-row"><span>${escape(model)}</span><strong>${compact(tokens)}</strong></div>`).join('')}` : ''}
       ${agent.warnings.map(warning => `<p class="warning">${escape(warning)}</p>`).join('')}
       <p class="detail-note">Local history is not a billing ledger. Cached tokens are included once. Imported records replace local figures, never add to them.</p></div>
@@ -59,19 +60,17 @@ function render(): void {
   const totals = snapshot.agents.reduce((sum, agent) => ({ tokens: sum.tokens + agent.usage.todayTokens, cpu: sum.cpu + agent.resources.cpu, memory: sum.memory + agent.resources.memory, processes: sum.processes + agent.resources.processes }), { tokens: 0, cpu: 0, memory: 0, processes: 0 });
   const agents = snapshot.agents.filter(agent => filter === 'all' || (filter === 'running' ? agent.resources.processes > 0 : urgent(agent)));
   app.innerHTML = `<header class="topbar"><a class="brand" href="#" aria-label="Agent Usage Panel home"><span class="brand-icon">${robot}</span><span>agent usage<span class="brand-suffix"> / panel</span></span></a>
-    <button id="settings" class="icon-button" aria-label="Settings" title="Settings">⚙</button></header>
-    <main><div class="page-heading"><div><div class="eyebrow">A LITTLE CLARITY FOR YOUR WORKFLOW</div><h1>Agent activity<span class="heading-dot">.</span></h1><p>Your limits, tokens, and resources. All in one quiet place.</p></div>
-    <button id="refresh" class="refresh-button" ${refreshing || snapshot.scanning ? 'disabled' : ''}><span class="${snapshot.scanning ? 'spin' : ''}">↻</span> ${snapshot.scanning ? 'Checking…' : 'Refresh'}</button></div>
-    ${snapshot.demo ? '<div class="demo-banner"><strong>DEMO MODE</strong> Sample data only. No credentials, histories, or processes are read.</div>' : ''}
+    ${snapshot.demo ? '<span class="demo-badge" title="Sample data only. No credentials, histories, or processes are read.">DEMO MODE</span>' : ''}
+    <div class="header-actions"><button id="refresh" class="icon-button" aria-label="Refresh usage" title="${snapshot.scanning ? 'Checking usage…' : 'Refresh usage (R)'}" aria-busy="${snapshot.scanning}" ${refreshing || snapshot.scanning ? 'disabled' : ''}><svg class="${snapshot.scanning ? 'spin' : ''}" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M16 8a6.2 6.2 0 1 0 .1 4M16 3v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="settings" class="icon-button" aria-label="Settings" title="Settings">⚙</button></div></header>
+    <main><h1 class="sr-only">Agent Usage Panel</h1>
     ${snapshot.errors.map(error => `<div class="notice" role="status">${escape(error)}</div>`).join('')}
-    ${!settings.networkEnabled && !snapshot.demo ? '<div class="privacy-banner"><span>◈</span><div><strong>Local by default.</strong> Enable provider quota checks in Settings to see subscription limits. Your credentials stay out of the panel.</div></div>' : ''}
-    <section class="summary-grid" aria-label="Usage summary"><div class="summary-cell"><span>Tokens today <i>↗</i></span><strong>${compact(totals.tokens)}</strong><small>across your agents</small></div>
-    <div class="summary-cell"><span>Agent CPU <i>⌁</i></span><strong>${settings.processEnabled ? totals.cpu.toFixed(1) : '—'}<em>%</em></strong><small>${settings.processEnabled ? `${totals.processes} active processes` : 'monitoring disabled'}</small></div>
-    <div class="summary-cell"><span>Agent memory <i>▥</i></span><strong>${settings.processEnabled ? memory(totals.memory) : '—'}</strong><small>resident memory · not GPU</small></div></section>
+    <section class="summary-grid" aria-label="Usage summary"><div class="summary-cell"><span>Tokens today</span><strong>${compact(totals.tokens)}</strong></div>
+    <div class="summary-cell" title="${settings.processEnabled ? `${totals.processes} active agent processes · whole-machine CPU capacity` : 'Process monitoring disabled'}"><span>CPU</span><strong>${settings.processEnabled ? totals.cpu.toFixed(1) + '%' : '—'}</strong></div>
+    <div class="summary-cell" title="Summed resident memory, not GPU"><span>RAM</span><strong>${settings.processEnabled ? memory(totals.memory) : '—'}</strong></div></section>
     <div class="section-toolbar"><div class="filters" role="group" aria-label="Filter agents">${(['all', 'running', 'attention'] as const).map(key => `<button id="filter-${key}" data-filter="${key}" class="${filter === key ? 'selected' : ''}" aria-pressed="${filter === key}">${key === 'all' ? 'All agents' : key === 'running' ? 'Running' : 'Needs attention'}${key === 'all' ? `<span>${snapshot.agents.length}</span>` : ''}</button>`).join('')}</div><span class="live-label"><i></i> ${snapshot.demo ? 'Preview' : 'On-device'}</span></div>
     <section class="agent-grid" aria-label="Agents">${agents.map(card).join('') || '<div class="empty-state"><span>✓</span><h2>Nothing here right now.</h2><p>Choose All agents to see every provider.</p></div>'}</section>
-    <footer><div><span class="footer-dot"></span> ${snapshot.demo ? 'Demo' : settings.processEnabled ? `Resources ${age(snapshot.resourceAt)}` : 'Process monitoring off'} <span class="separator">/</span> Usage ${age(snapshot.updatedAt)}</div><div class="footer-note">Inspired by Omarchy. Built for everywhere.</div></footer>
-    <p class="tray-note">Close the window to keep monitoring in your menu bar or system tray. <button id="quit">Quit app</button></p>
+    <footer><div title="Close the window to keep monitoring in the menu bar or system tray."><span class="footer-dot"></span>${snapshot.demo ? 'Demo' : settings.processEnabled ? `Resources ${age(snapshot.resourceAt)}` : 'Monitoring off'} <span class="separator">/</span> Usage ${age(snapshot.updatedAt)}</div><button id="quit" title="Stop monitoring and quit">Quit app</button></footer>
     </main>`;
   if (focus) document.getElementById(focus)?.focus({ preventScroll: true });
   window.scrollTo({ top: scroll });

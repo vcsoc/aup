@@ -87,7 +87,7 @@ function handle(channel: string, action: (input?: unknown) => unknown): void {
 }
 function createWindow(): void {
   window = new BrowserWindow({
-    width: 760, height: 850, minWidth: 420, minHeight: 480, show: false,
+    width: 420, height: 670, minWidth: 360, minHeight: 360, show: false,
     title: 'Agent Usage Panel', backgroundColor: '#141919',
     webPreferences: { preload: path.join(root, 'assets', 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
   });

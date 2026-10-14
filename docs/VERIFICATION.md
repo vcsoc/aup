@@ -11,13 +11,14 @@ npm 10.9.7, Electron 44.7.2.
 | Unit/integration suite | `npm test`: **51 tests, 5 files, all passing** |
 | Production build | `npm run build`: main/worker compilation and local Vite renderer assets |
 | Worker integration | `node scripts/worker-smoke.mjs`: isolated Claude + custom provider fixtures, quotas off, projected metadata, settings reset |
-| Desktop UI | `node scripts/smoke.mjs`: launches actual Electron, checks six demo agents, filters, details, settings, dark/light themes, narrow layout, keyboard shortcuts, refresh |
+| Desktop UI | `node scripts/smoke.mjs`: launches actual Electron, checks the 420×670 default window, thin stacked full-width rows, no intro/privacy banner, refresh icon/tooltip, locally loaded JetBrains Mono throughout the UI, six demo agents, filters, details, settings, dark/light themes, native narrow/wide resizing, keyboard shortcuts, refresh |
 | Runtime isolation | Smoke checks confirm sandbox/context isolation enabled, Node integration disabled, no renderer `require`/`process` or arbitrary filesystem preload method |
 | Real host + worker | `node scripts/host-smoke.mjs`: temporary profile, actual collection, settings persisted through IPC, malicious imported name escaped, fixture credential/content not included in snapshot, renderer networking denied |
 | Native process sampler | `collectProcesses` executed against macOS' actual process table; recognized active Pi/Codex trees and returned aggregate CPU/RSS only |
 | Unpacked application | `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack`: creates native ARM64 `.app` |
-| Packaged runtime | Both `scripts/smoke.mjs` and `scripts/host-smoke.mjs` pass with `AUP_EXECUTABLE` pointing at the unpacked `.app` executable, including its ASAR-packaged worker/dependencies |
+| Packaged runtime | Both `scripts/smoke.mjs` and `scripts/host-smoke.mjs` pass with `AUP_EXECUTABLE` pointing at the unpacked `.app` executable, including its ASAR-packaged worker/dependencies and bundled JetBrains Mono |
 | Install image | `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64`: creates unsigned ARM64 DMG |
+| Installed update | Installed v0.1.1 at `/Applications/Agent Usage Panel.app`; both UI and real-host smoke scripts passed against that installed executable using temporary profiles. Relaunched the normal installed app afterward. Existing user-profile directories were not replaced or edited by the update; the previous bundle is retained under `~/Library/Caches/Agent Usage Panel/backups/20261014-145110/`. |
 | Dependencies | `npm audit`: **0 vulnerabilities** (including development dependencies) |
 | Upstream preservation | All **30 vendored files** compared byte-for-byte against pinned Omarchy commit `84cfb93959f4fe0bbb71de71593b36647d2ba78d` |
 
@@ -67,7 +68,7 @@ suite is reference material, not counted among this project's passing tests.
 ## Local artifacts
 
 - `release/mac-arm64/Agent Usage Panel.app`
-- `release/Agent Usage Panel-0.1.0-arm64.dmg`
+- `release/Agent Usage Panel-0.1.1-arm64.dmg`
 
 Build outputs are ignored by Git. The app is unsigned and unnotarized; no signing
 identity was used and nothing was published. See the README for building on each

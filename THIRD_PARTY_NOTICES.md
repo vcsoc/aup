@@ -46,6 +46,17 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+## JetBrains Mono
+
+The unmodified JetBrains Mono v2.304 variable font is bundled locally at
+`src/renderer/fonts/JetBrainsMono-wght.ttf` and copied into production renderer
+assets by Vite. No font service or network request is used.
+
+- Source: https://github.com/JetBrains/JetBrainsMono/tree/v2.304
+- Copyright 2020 The JetBrains Mono Project Authors
+- License: SIL Open Font License 1.1, reproduced in
+  `assets/fonts/JetBrainsMono-OFL.txt` (also included in packaged apps).
+
 ## Runtime and build dependencies
 
 Electron, Chromium, Node.js, systeminformation, Zod, and the development tools

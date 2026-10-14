@@ -22,6 +22,8 @@ try {
   expect(await realpath(usedProfile)).toBe(await realpath(profile));
   await expect.poll(async () => page.evaluate(async () => (await window.panel.snapshot()).agents.find(a => a.id === 'claude').usage.todayTokens), { timeout: 20000 }).toBe(30);
   await expect(page.locator('.agent-card')).toHaveCount(7);
+  await expect(page.locator('.page-heading, .privacy-banner')).toHaveCount(0);
+  expect(await page.locator('.agent-card').evaluateAll(cards => cards.every(card => card.getBoundingClientRect().height <= 70))).toBe(true);
   await expect(page.getByRole('heading', { name: maliciousName, exact: true })).toBeVisible();
   expect(await page.locator('img').count()).toBe(0); expect(await page.evaluate(() => window.injected)).toBeUndefined();
   const serialized = await page.evaluate(async () => JSON.stringify(await window.panel.snapshot()));

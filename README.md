@@ -23,6 +23,10 @@ Or explore without reading credentials, histories, or processes:
 npm run demo
 ```
 
+The compact **420 × 670** window uses thin, full-width stacked agent rows and a
+locally bundled **JetBrains Mono** font throughout the app UI. Refresh is an icon
+beside Settings (hover for its tooltip); details expand with each row's **+**.
+
 The panel opens immediately, with a robot icon in the menu bar / system tray.
 Click it to show or hide the panel; right-click for Open, Refresh, and Quit.
 macOS also shows the highest current quota percentage beside the icon. Closing
