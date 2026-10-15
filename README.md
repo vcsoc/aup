@@ -30,6 +30,10 @@ windows are left alone. Thin full-width rows use larger **JetBrains Mono** text,
 wide activity charts, and consistent token/CPU/RAM colors. Empty quota/status
 rows are folded into the centered heading. Refresh is an icon beside Settings;
 details expand with **+**, and today's cost appears next to each provider name.
+On macOS, the original native traffic-light controls are integrated into this
+same header—there is no separate OS title bar. Drag the header's empty areas to
+move the window; controls and header buttons remain clickable. Closing still
+hides to the menu bar. Windows/Linux keep their native frame and controls.
 
 Providers always sort **most active first**: running agents, then today's
 processed tokens descending, then latest observed request/prompt, then recent
@@ -286,7 +290,10 @@ than your real accounts, and never need provider API keys. UI screenshots are
 written to `.test-results/`. To test an unpacked/installed binary instead of the
 development app, set `AUP_EXECUTABLE` to its executable when running
 `node scripts/smoke.mjs`, `node scripts/host-smoke.mjs`, and
-`node scripts/startup-smoke.mjs`.
+`node scripts/startup-smoke.mjs`. `node scripts/window-smoke.mjs` additionally
+checks macOS native header geometry, minimize/restore, and close-to-tray without
+using the test-only close override. It captures only its own demo window when
+screen access is already granted; it never requests new screen permissions.
 
 See [architecture](docs/ARCHITECTURE.md) and [verification evidence](docs/VERIFICATION.md)
 for what was actually executed locally versus configured for other platforms.

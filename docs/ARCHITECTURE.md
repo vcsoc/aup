@@ -114,6 +114,14 @@ it on left-click as well. Only `right-click` explicitly pops that menu; the
 existing left-click handler exclusively toggles the panel. Windows/Linux keep
 native menu attachment (required for Linux StatusNotifier integration).
 
+`src/main/window-chrome.ts` uses macOS `titleBarStyle: hidden` with native
+traffic lights at (10, 11) inside the renderer's 36px header. The title strip is
+removed without replacing OS controls or adding window-action IPC. Platform-
+scoped CSS reserves 80px, marks header whitespace draggable, excludes interactive
+controls from dragging, and keeps Settings below the native buttons. Other OSes
+retain their standard frame. Content fitting continues to use actual content
+bounds, which now equal outer window bounds on macOS.
+
 The main process restarts failed workers at most three times. It never starts a
 shell or a local web server. `assets/preload.cjs` exposes nine fixed request
 capabilities and one snapshot subscription. New capabilities request a fixed

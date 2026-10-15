@@ -90,6 +90,7 @@ function card(agent: Agent): string {
   </article>`;
 }
 function render(): void {
+  document.documentElement.dataset.platform = snapshot.platform;
   const focus = (document.activeElement as HTMLElement)?.id;
   const scroll = window.scrollY;
   const totals = snapshot.agents.reduce((sum, agent) => ({ cpu: sum.cpu + agent.resources.cpu, memory: sum.memory + agent.resources.memory, processes: sum.processes + agent.resources.processes }), { cpu: 0, memory: 0, processes: 0 });

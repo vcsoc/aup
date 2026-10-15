@@ -6,6 +6,7 @@ import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { demoSnapshot } from './demo.js';
 import { configureStartup, type StartupResult } from './startup.js';
 import { configureTrayMenu } from './tray-menu.js';
+import { windowChrome } from './window-chrome.js';
 import { homedir } from 'node:os';
 import { names, newAgent, providerIds, type Settings, type Snapshot } from '../shared/types.js';
 
@@ -102,7 +103,7 @@ function handle(channel: string, action: (input?: unknown) => unknown): void {
 function createWindow(): void {
   window = new BrowserWindow({
     width: 420, height: 550, minWidth: 360, minHeight: 160, show: false,
-    title: 'Agent Usage Panel', backgroundColor: '#141919',
+    title: 'Agent Usage Panel', backgroundColor: '#141919', ...windowChrome(),
     webPreferences: { preload: path.join(root, 'assets', 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

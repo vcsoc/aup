@@ -14,6 +14,11 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await expect(page.getByRole('link', { name: 'Agent Usage Panel home' })).toBeVisible();
   expect((await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()))[0]).toBe(420);
+  await expect(page.locator('html')).toHaveAttribute('data-platform', process.platform);
+  if (process.platform === 'darwin') {
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getWindowButtonPosition())).toEqual({ x: 10, y: 11 });
+    expect(await page.locator('.brand').evaluate(el => el.getBoundingClientRect().left)).toBeGreaterThanOrEqual(80);
+  }
   await expect(page.locator('.page-heading, .privacy-banner')).toHaveCount(0);
   await expect(page.locator('.header-actions > button')).toHaveCount(2);
   await expect(page.locator('.header-actions > button').first()).toHaveAttribute('id', 'refresh');
@@ -126,6 +131,8 @@ try {
   await page.screenshot({ path: '.test-results/panel-light.png', fullPage: true });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(360, 600));
   await page.waitForFunction(() => window.innerWidth === 360);
+  expect(await page.locator('.header-actions').evaluate(el => el.getBoundingClientRect().right <= innerWidth)).toBe(true);
+  expect(await page.locator('.brand').evaluate(el => el.getBoundingClientRect().right <= document.querySelector('.header-actions').getBoundingClientRect().left)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(await page.locator('.agent-card').evaluateAll(cards => cards.every(card => card.getBoundingClientRect().right <= document.documentElement.clientWidth))).toBe(true);
   // Capture the native viewport; Chromium's full-page capture can crop a
