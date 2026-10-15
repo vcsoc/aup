@@ -51,6 +51,11 @@ try {
       await expect.poll(() => page.evaluate(() => Math.abs(innerHeight - document.querySelector('#app').getBoundingClientRect().height))).toBeLessThanOrEqual(2);
       await page.waitForTimeout(1000);
       execFileSync('/usr/sbin/screencapture', ['-x', '-o', '-l', capture.id.split(':')[1], '.test-results/stats-native.png']);
+      await page.getByRole('button', { name: 'Codex', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Codex history' })).toBeVisible();
+      await expect.poll(() => page.evaluate(() => Math.abs(innerHeight - document.querySelector('#app').getBoundingClientRect().height))).toBeLessThanOrEqual(2);
+      await page.waitForTimeout(1000);
+      execFileSync('/usr/sbin/screencapture', ['-x', '-o', '-l', capture.id.split(':')[1], '.test-results/history-native.png']);
     }
     catch { console.log('Native window screenshot unavailable; geometry/control checks passed.'); }
   }

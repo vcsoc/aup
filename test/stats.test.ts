@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { newAgent, type HistoryDay } from '../src/shared/types.js';
-import { aggregateRows, calendarDate, costLabel, dateKey, emptyCost, historyFor, rangeError, rangeStats, shiftRange, sumCosts, unknownCost, weekRange } from '../src/shared/stats.js';
+import { aggregateRows, calendarDate, costLabel, dateKey, emptyCost, historyFor, rangeError, rangeStats, shiftRange, sumCosts, todayRange, unknownCost, weekRange } from '../src/shared/stats.js';
 const day = (date: string, tokens: number, usd: number, cachedTokens?: number): HistoryDay => ({ date, tokens, cachedTokens, cost: { ...emptyCost(), usd, knownTokens: tokens, estimated: true } });
 
 describe('local calendar ranges', () => {
+  it('selects exactly the current local day, including local midnight/year boundaries', () => {
+    expect(todayRange(new Date(2026, 0, 1, 0, 0))).toEqual({ from: '2026-01-01', to: '2026-01-01' });
+    expect(todayRange(new Date(2026, 11, 31, 23, 59))).toEqual({ from: '2026-12-31', to: '2026-12-31' });
+    expect(todayRange(new Date(2026, 2, 8, 3))).toEqual({ from: '2026-03-08', to: '2026-03-08' });
+  });
   it('defaults to the complete Monday–Sunday week, including future days', () => {
     expect(weekRange(new Date(2026, 9, 14, 23))).toEqual({ from: '2026-10-12', to: '2026-10-18' });
     expect(weekRange(new Date(2026, 9, 18, 12))).toEqual({ from: '2026-10-12', to: '2026-10-18' });

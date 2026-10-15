@@ -26,6 +26,9 @@ export function shiftRange(range: DateRange, days: number): DateRange {
   from.setDate(from.getDate() + days); to.setDate(to.getDate() + days);
   return { from: dateKey(from), to: dateKey(to) };
 }
+export function todayRange(now = new Date()): DateRange {
+  const today = dateKey(now); return { from: today, to: today };
+}
 export function weekRange(now = new Date()): DateRange {
   const monday = new Date(now); monday.setDate(monday.getDate() - (monday.getDay() + 6) % 7);
   const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);

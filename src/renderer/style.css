@@ -108,6 +108,10 @@ main { padding: 6px 8px; }
 .mark-pi { color: var(--accent); background: var(--accent-wash); }
 .agent-identity { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; }
 .agent-identity h2 { min-width: 0; margin: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-link { max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: baseline; }
+.history-link:hover { color: var(--accent); text-decoration: underline; }
+.history-link:focus-visible { outline-offset: -2px; } /* Keep focus visible inside clipped labels. */
+.agent-identity h2 .history-link { display: block; width: 100%; }
 .agent-identity > span { max-width: 85px; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-pill { display: flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--faint); font-size: 9px; white-space: nowrap; }
 .status-pill.running { color: var(--running-color); }
@@ -173,9 +177,18 @@ footer button { padding: 2px 0 2px 3px; border: 0; background: none; color: var(
 
 /* Views and date-range statistics. Tables scroll inside the fitted window. */
 .view-tabs, .stats-tabs { display: flex; gap: 2px; flex-shrink: 0; }
-.view-tabs button, .stats-tabs button, .range-nav button, .pricing-footer button { border: 1px solid var(--line); border-radius: 3px; background: none; padding: 4px 6px; color: var(--muted); font-size: 10px; }
+.view-tabs button, .stats-tabs button, .range-nav button, .pricing-footer button, .history-controls > button { border: 1px solid var(--line); border-radius: 3px; background: none; padding: 4px 6px; color: var(--muted); font-size: 10px; }
 .view-tabs button[aria-selected=true], .stats-tabs button[aria-selected=true] { color: var(--text); background: var(--raised); }
 .stats-heading { font-size: 11px; color: var(--muted); }
+.history-heading h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.history-heading button { flex-shrink: 0; }
+.history-controls { display: flex; align-items: flex-end; gap: 6px; margin-bottom: 8px; }
+.history-controls label:not(.toggle-row) { flex: 1; margin-bottom: 0; }
+.history-controls select { margin-top: 3px; }
+.history-controls > button { white-space: nowrap; min-height: 29px; }
+.item-history-table .history-group { background: var(--surface); }
+.item-history-table .history-group th, .item-history-table .history-group td { font-weight: 600; }
+.item-history-table .history-day th { padding-left: 14px; color: var(--muted); }
 .range-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .range-nav strong { font-size: 12px; font-weight: 500; }
 .range-nav > div { display: flex; gap: 4px; }

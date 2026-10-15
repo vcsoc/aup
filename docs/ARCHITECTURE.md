@@ -66,7 +66,21 @@ chart is derived from it without limiting Stats to seven days. Shared pure
 helpers in `src/shared/stats.ts` implement inclusive local dates, Monday–Sunday
 weeks, DST-safe calendar shifts, provider/day summaries, and partial cost/cache
 coverage. The renderer retains date/filter state across live updates and avoids
-replacing focused date controls.
+replacing focused date controls. The Today preset evaluates the current local
+calendar date when clicked, not when the app started.
+
+`src/shared/item-history.ts` implements item drill-down using the same daily
+aggregates. Optional start/end dates filter before aggregation; blank endpoints
+are unbounded. Days are merged by valid local date, then grouped into calendar
+years/months or Monday-based weeks (not split at month/year boundaries). Group
+and grand totals are computed independently from daily rows, never re-adding
+parent totals or today's/lifetime counters. Unknown cache/cost coverage propagates.
+Only retained rows are traversed; no date-span expansion or ten-year restriction
+is needed. The renderer opens all-history weekly groups newest-first and provides
+other grouping levels, reversible order, and expandable daily rows. Main Stats
+range state remains independent. Selected item, filters, collapsed groups, focus,
+and inner scroll survive snapshot updates; no new IPC, persistence, or network
+capability is added. Pi/Codex backend attribution remains unchanged.
 
 `src/shared/activity.ts` provides a nonmutating default provider order: running,
 today's processed usage, latest observed request/prompt, recent volume, then

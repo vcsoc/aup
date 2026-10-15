@@ -111,13 +111,30 @@ mean two logged requests are duplicates.
 
 Switch **Live → Stats** for **Providers** and **Days** tabs. The default range is
 the complete current **Monday–Sunday** week. **‹ / ›** shift both selected dates
-by seven calendar days; **This week** resets them. Choose inclusive **From/To**
+by seven calendar days; **Today** sets both dates to the current local day and
+**This week** resets them. Choose inclusive **From/To**
 dates or filter to one provider. Native history covers all retained sessions,
 not only the seven-day live chart. Imported aggregates may only expose seven
 days; unavailable history is not reconstructed. Invalid/reversed ranges are
 flagged; custom ranges are limited to ten years.
 
 ![Date-range provider totals in demo mode](docs/stats.png)
+
+Click any agent/provider **name** in Live or Stats to open its dedicated history.
+It defaults to **all retained dates**, grouped by **Weeks**, with periods and
+individual days **newest first**. Choose **Days / Weeks / Months / Years**;
+weekly, monthly, and yearly rows show token, uncached-token, and USD totals and
+expand/collapse to reveal daily metrics. **Newest first / Oldest first** reverses
+the order. Optional **From / To** filters can be blank or one-sided and include
+both endpoints; period totals use only the filtered days, and the grand total
+counts each day once. **All dates** clears filters; **‹ All stats** returns to the
+unchanged main Stats range. Weeks are Monday–Sunday even across months/years;
+months and years use local calendar boundaries. Only retained dates are rendered,
+so this view does not impose the main Stats ten-year limit or invent missing days.
+Pi's existing backend attribution is preserved, with a link to Codex history when
+its OpenAI Codex usage is reported there.
+
+![Item history grouped by week in demo mode](docs/history.png)
 
 - Costs are **USD**: recorded per-request cost is preferred (including an explicit
   zero), otherwise an exact provider/model match uses current **models.dev**
@@ -289,8 +306,11 @@ Linux CI runs smoke tests under `xvfb-run`. Tests use temporary fixtures rather
 than your real accounts, and never need provider API keys. UI screenshots are
 written to `.test-results/`. To test an unpacked/installed binary instead of the
 development app, set `AUP_EXECUTABLE` to its executable when running
-`node scripts/smoke.mjs`, `node scripts/host-smoke.mjs`, and
-`node scripts/startup-smoke.mjs`. `node scripts/window-smoke.mjs` additionally
+`node scripts/smoke.mjs`, `node scripts/history-smoke.mjs`,
+`node scripts/host-smoke.mjs`, and `node scripts/startup-smoke.mjs`.
+The history script checks Today, item navigation, daily/weekly/monthly/yearly
+groups, optional inclusive dates, descending order, partial-period totals,
+keyboard collapse, refresh-state retention, custom-name escaping, and compact layouts. `node scripts/window-smoke.mjs` additionally
 checks macOS native header geometry, minimize/restore, and close-to-tray without
 using the test-only close override. It captures only its own demo window when
 screen access is already granted; it never requests new screen permissions.

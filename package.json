@@ -1,6 +1,6 @@
 {
   "name": "agent-usage-panel",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Private, cross-platform AI agent usage and resource monitor inspired by Omarchy",
   "author": "Agent Usage Panel contributors",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "demo": "npm run build && electron . --demo",
     "test": "vitest run",
     "prices:update": "npm run build && node scripts/update-prices.mjs",
-    "test:smoke": "npm run build && node scripts/worker-smoke.mjs && node scripts/smoke.mjs && node scripts/host-smoke.mjs && node scripts/startup-smoke.mjs && node scripts/window-smoke.mjs",
+    "test:smoke": "npm run build && node scripts/worker-smoke.mjs && node scripts/smoke.mjs && node scripts/history-smoke.mjs && node scripts/host-smoke.mjs && node scripts/startup-smoke.mjs && node scripts/window-smoke.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",

@@ -2,7 +2,8 @@ import './style.css';
 import { providerIds, names, type Agent, type PanelAPI, type Settings, type Snapshot, type CostSummary } from '../shared/types';
 import { tokenTotals } from '../shared/usage';
 import { sortAgents } from '../shared/activity';
-import { costLabel, rangeError, rangeStats, shiftRange, unknownCost, weekRange } from '../shared/stats';
+import { costLabel, rangeError, rangeStats, shiftRange, todayRange, unknownCost, weekRange } from '../shared/stats';
+import { groupedHistory, type HistoryGrouping } from '../shared/item-history';
 declare global { interface Window { panel: PanelAPI } }
 const api = window.panel;
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -12,6 +13,8 @@ let filter: 'all' | 'running' | 'attention' = 'all';
 let refreshing = false; let expanded = new Set<string>();
 let view: 'live' | 'stats' = 'live'; let statsMode: 'providers' | 'days' = 'providers';
 let range = weekRange(); let statsProvider = 'all'; let priceRequest = false; let priceError = '';
+let historyItem: string | null = null; let historyRange = { from: '', to: '' };
+let historyGrouping: HistoryGrouping = 'week'; let historyDescending = true; const collapsedGroups = new Set<string>();
 const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const compact = (n: number) => new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 const memory = (n: number) => n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;
@@ -35,9 +38,9 @@ function statsView(): string {
   const total = stats.total;
   const warnings = [...new Set(snapshot.agents.filter(agent => statsProvider === 'all' || agent.id === statsProvider).flatMap(agent => agent.warnings))];
   const tabs = `<div class="stats-tabs" role="tablist" aria-label="Statistics breakdown">${(['providers', 'days'] as const).map(mode => `<button role="tab" id="stats-${mode}" data-stats-mode="${mode}" aria-selected="${statsMode === mode}" aria-controls="stats-table" tabindex="${statsMode === mode ? 0 : -1}">${mode === 'providers' ? 'Providers' : 'Days'}</button>`).join('')}</div>`;
-  const row = (item: typeof total) => `<tr>${statsMode === 'days' ? `<td>${escape(item.date)}</td>` : ''}<th scope="row">${escape(item.name)}</th><td title="Processed tokens, including cached reads">${compact(item.tokens)}</td>${statsMode === 'providers' ? `<td>${item.cachedTokens === undefined ? '—' : compact(item.tokens - item.cachedTokens)}</td>` : ''}<td class="cost-value" title="${escape(costDescription(item.cost))}">${costLabel(item.cost)}</td></tr>`;
+  const row = (item: typeof total) => `<tr>${statsMode === 'days' ? `<td>${escape(item.date)}</td>` : ''}<th scope="row">${item.id === 'empty' ? escape(item.name) : `<button class="history-link" data-history-item="${escape(item.id)}" title="View all retained history for ${escape(item.name)}">${escape(item.name)}</button>`}</th><td title="Processed tokens, including cached reads">${compact(item.tokens)}</td>${statsMode === 'providers' ? `<td>${item.cachedTokens === undefined ? '—' : compact(item.tokens - item.cachedTokens)}</td>` : ''}<td class="cost-value" title="${escape(costDescription(item.cost))}">${costLabel(item.cost)}</td></tr>`;
   return `<section id="stats-panel" role="tabpanel" aria-labelledby="view-stats">
-    <div class="range-nav"><strong>Usage history</strong><div><button id="previous-week" aria-label="Previous week" title="Move both dates back seven days">‹</button><button id="current-week">This week</button><button id="next-week" aria-label="Next week" title="Move both dates forward seven days">›</button></div></div>
+    <div class="range-nav"><strong>Usage history</strong><div><button id="previous-week" aria-label="Previous week" title="Move both dates back seven days">‹</button><button id="stats-today" title="Show today's activity only">Today</button><button id="current-week">This week</button><button id="next-week" aria-label="Next week" title="Move both dates forward seven days">›</button></div></div>
     <div class="date-fields"><label>From<input type="date" id="stats-from" value="${escape(range.from)}" required></label><label>To<input type="date" id="stats-to" value="${escape(range.to)}" required></label></div>
     ${error ? `<p class="warning" role="alert">${escape(error)}</p>` : `<section class="summary-grid stats-summary" aria-label="Selected range totals"><div class="summary-cell metric-tokens"><span>Processed</span><strong>${compact(total.tokens)}</strong></div><div class="summary-cell metric-tokens"><span>Uncached</span><strong>${total.cachedTokens === undefined ? '—' : compact(total.tokens - total.cachedTokens)}</strong></div><div class="summary-cell cost-value" title="${escape(costDescription(total.cost))}"><span>Cost · USD</span><strong>${costLabel(total.cost)}</strong></div></section>`}
     <div class="stats-controls">${tabs}<label class="sr-only" for="stats-provider">Provider</label><select id="stats-provider" aria-label="Provider"><option value="all">All providers</option>${sortAgents(snapshot.agents).map(agent => `<option value="${escape(agent.id)}" ${statsProvider === agent.id ? 'selected' : ''}>${escape(agent.name)}</option>`).join('')}</select></div>
@@ -48,6 +51,29 @@ function statsView(): string {
     <p class="stats-note">Retained local history only. Missing/oversized files are partial; imported records may expose only seven days. No history is invented for missing dates.</p>
     <div class="pricing-footer"><span>models.dev · ${snapshot.pricing?.fetchedAt ? escape(new Date(snapshot.pricing.fetchedAt).toLocaleDateString()) : 'no catalog'} · ${compact(snapshot.pricing?.models || 0)} models</span><button id="update-prices" ${snapshot.demo || priceRequest || snapshot.pricing?.updating ? 'disabled' : ''} title="Fetch public model prices from models.dev; no credentials or usage are sent">${priceRequest || snapshot.pricing?.updating ? 'Updating…' : 'Update prices'}</button></div>
     ${priceError || snapshot.pricing?.error ? `<p class="warning" role="status">${escape(priceError || snapshot.pricing?.error)}</p>` : ''}
+  </section>`;
+}
+function itemHistoryView(agent: Agent): string {
+  const stats = groupedHistory(agent.usage, historyRange, historyGrouping, historyDescending);
+  const total = stats.total;
+  const values = (item: typeof total) => `<td class="metric-tokens" title="${item.tokens.toLocaleString()} processed tokens">${compact(item.tokens)}</td><td class="metric-tokens" title="Uncached tokens">${item.cachedTokens === undefined ? '—' : compact(item.tokens - item.cachedTokens)}</td><td class="cost-value" title="${escape(costDescription(item.cost))}">${costLabel(item.cost)}</td>`;
+  const rows = stats.groups.map(group => {
+    const key = `${historyGrouping}:${group.key}`;
+    const open = !collapsedGroups.has(key);
+    const days = group.days.map(day => `<tr class="history-day" data-date="${day.date}"><th scope="row"><time datetime="${day.date}">${day.date}</time></th>${values(day)}</tr>`).join('');
+    return historyGrouping === 'day' ? days : `<tr class="history-group" data-history-period="${group.key}"><th scope="row"><button id="history-period-${key}" class="history-link" data-history-group="${key}" aria-expanded="${open}" title="Toggle daily usage for ${escape(group.label)}">${open ? '▾' : '▸'} ${escape(group.label)}</button></th>${values(group.total)}</tr>${open ? days : ''}`;
+  }).join('');
+  return `<section id="stats-panel" aria-labelledby="item-history-title">
+    <div class="range-nav history-heading"><h2 id="item-history-title" tabindex="-1">${escape(agent.name)} history</h2><button id="history-back">‹ All stats</button></div>
+    <div class="date-fields"><label>From (optional)<input type="date" id="history-from" value="${escape(historyRange.from)}"></label><label>To (optional)<input type="date" id="history-to" value="${escape(historyRange.to)}"></label></div>
+    <div class="history-controls"><label for="history-group">Group by<select id="history-group">${(['day', 'week', 'month', 'year'] as const).map(group => `<option value="${group}" ${historyGrouping === group ? 'selected' : ''}>${{ day: 'Days', week: 'Weeks', month: 'Months', year: 'Years' }[group]}</option>`).join('')}</select></label><button id="history-sort" title="Reverse chronological order">${historyDescending ? 'Newest first ↓' : 'Oldest first ↑'}</button><button id="history-clear">All dates</button></div>
+    ${stats.error ? `<p class="warning" role="alert">${escape(stats.error)}</p>` : `<section class="summary-grid stats-summary" aria-label="Item history totals"><div class="summary-cell metric-tokens"><span>Processed</span><strong>${compact(total.tokens)}</strong></div><div class="summary-cell metric-tokens"><span>Uncached</span><strong>${total.cachedTokens === undefined ? '—' : compact(total.tokens - total.cachedTokens)}</strong></div><div class="summary-cell cost-value" title="${escape(costDescription(total.cost))}"><span>Cost · USD</span><strong>${costLabel(total.cost)}</strong></div></section>`}
+    <div class="stats-scroll item-history-table" data-scroll-key="${escape(agent.id)}-${historyGrouping}-${historyRange.from}-${historyRange.to}-${historyDescending}" tabindex="0"><table><caption class="sr-only">${escape(agent.name)} daily usage, grouped by ${historyGrouping}, ${historyDescending ? 'newest' : 'oldest'} first. Inclusive dates: ${escape(historyRange.from || 'earliest retained')} through ${escape(historyRange.to || 'latest retained')}.</caption><colgroup><col style="width:44%"><col><col><col></colgroup><thead><tr><th scope="col">${historyGrouping === 'day' ? 'Date' : 'Period / day'}</th><th scope="col">Tokens</th><th scope="col">Uncached</th><th scope="col">Cost USD</th></tr></thead><tbody>${rows || `<tr><td colspan="4">${stats.error ? 'Correct the dates to see totals.' : 'No retained usage in this range.'}</td></tr>`}</tbody><tfoot><tr><th scope="row">Total</th>${values(total)}</tr></tfoot></table></div>
+    ${agent.usageNote ? `<p class="stats-note">${escape(agent.usageNote)} ${agent.id === 'pi' && snapshot.agents.some(item => item.id === 'codex') ? '<button class="history-link" data-history-item="codex">View Codex history ↗</button>' : ''}</p>` : ''}
+    ${agent.warnings.length ? `<p class="warning" role="status">Partial history: ${agent.warnings.map(escape).join(' ')}</p>` : ''}
+    ${total.cost.unpricedTokens ? `<p class="warning">${compact(total.cost.unpricedTokens)} tokens unpriced. “+” = partial cost; “—” = unknown.</p>` : ''}
+    <p class="stats-note">Inclusive local dates; blank dates include all retained history. Weeks = Mon–Sun, including weeks across month/year boundaries. Each period total includes only the filtered days; the grand total counts every day once. Expand/collapse a period to see its days.</p>
+    <p class="stats-note">Tokens include cache reads. Costs use recorded USD or current list-price estimates, not subscription bills. Missing local history and limited imports remain partial; no history is invented.</p>
   </section>`;
 }
 function card(agent: Agent): string {
@@ -62,7 +88,7 @@ function card(agent: Agent): string {
   return `<article class="agent-card ${agent.stale ? 'stale' : ''}" data-agent="${escape(agent.id)}">
     <div class="agent-heading">
       <div class="agent-mark mark-${escape(agent.id.split('/')[0])}" aria-hidden="true">${glyphs[agent.id.split('/')[0]] || '◈'}</div>
-      <div class="agent-identity"><h2 title="${escape(agent.name)}${agent.plan ? ` · ${escape(agent.plan)}` : ''}">${escape(agent.name)}</h2><span class="agent-cost" aria-label="Today's cost ${costLabel(cost)}" title="Today's cost: ${escape(costDescription(cost))}">${cost.estimated ? '≈' : ''}${costLabel(cost)}</span></div>
+      <div class="agent-identity"><h2 title="${escape(agent.name)}${agent.plan ? ` · ${escape(agent.plan)}` : ''}"><button id="history-open-${escape(agent.id)}" class="history-link" data-history-item="${escape(agent.id)}" title="View usage and cost history for ${escape(agent.name)}">${escape(agent.name)}</button></h2><span class="agent-cost" aria-label="Today's cost ${costLabel(cost)}" title="Today's cost: ${escape(costDescription(cost))}">${cost.estimated ? '≈' : ''}${costLabel(cost)}</span></div>
       <span class="quota-inline" title="${escape(agent.usageNote || agent.quotaStatus)}">${!agent.limits.length && !agent.balance ? (agent.usageNote ? 'Usage ↗ Codex' : escape(agent.quotaStatus)) : escape(agent.plan)}</span>
       <span class="status-pill ${running ? 'running' : ''}">${running ? '<i></i> Running' : 'Idle'}</span>
     </div>
@@ -93,11 +119,15 @@ function render(): void {
   document.documentElement.dataset.platform = snapshot.platform;
   const focus = (document.activeElement as HTMLElement)?.id;
   const scroll = window.scrollY;
+  const historyTable = app.querySelector<HTMLElement>('.item-history-table');
+  const historyScroll = historyTable?.scrollTop || 0; const historyScrollKey = historyTable?.dataset.scrollKey;
   const totals = snapshot.agents.reduce((sum, agent) => ({ cpu: sum.cpu + agent.resources.cpu, memory: sum.memory + agent.resources.memory, processes: sum.processes + agent.resources.processes }), { cpu: 0, memory: 0, processes: 0 });
   const tokens = tokenTotals(snapshot.agents.map(agent => agent.usage));
   const tokenTitle = tokens.uncached === undefined ? `${compact(tokens.processed)} processed today; cache breakdown unavailable for one or more sources` : `${compact(tokens.uncached)} uncached + ${compact(tokens.cached!)} cached input = ${compact(tokens.processed)} processed today. Not subscription quota.`;
   const agents = sortAgents(snapshot.agents).filter(agent => filter === 'all' || (filter === 'running' ? agent.resources.processes > 0 : urgent(agent)));
   if (statsProvider !== 'all' && !snapshot.agents.some(agent => agent.id === statsProvider)) statsProvider = 'all';
+  const historyAgent = snapshot.agents.find(agent => agent.id === historyItem);
+  if (!historyAgent) historyItem = null;
   app.innerHTML = `<header class="topbar"><a class="brand" href="#" aria-label="Agent Usage Panel home"><span class="brand-icon">${robot}</span><span>agent usage<span class="brand-suffix"> / panel</span></span></a>
     ${snapshot.demo ? '<span class="demo-badge" title="Sample data only. No credentials, histories, or processes are read.">DEMO MODE</span>' : ''}
     <div class="header-actions"><button id="refresh" class="icon-button" aria-label="Refresh usage" title="${snapshot.scanning ? 'Checking usage…' : 'Refresh usage (R)'}" aria-busy="${snapshot.scanning}" ${refreshing || snapshot.scanning ? 'disabled' : ''}><svg class="${snapshot.scanning ? 'spin' : ''}" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M16 8a6.2 6.2 0 1 0 .1 4M16 3v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -108,10 +138,12 @@ function render(): void {
     <div class="summary-cell metric-cpu" title="${settings.processEnabled ? `${totals.processes} active agent processes · whole-machine CPU capacity` : 'Process monitoring disabled'}"><span>CPU</span><strong>${settings.processEnabled ? totals.cpu.toFixed(1) + '%' : '—'}</strong></div>
     <div class="summary-cell metric-ram" title="Summed resident memory, not GPU"><span>RAM</span><strong>${settings.processEnabled ? memory(totals.memory) : '—'}</strong></div></section>` : ''}
     <div class="section-toolbar">${view === 'live' ? `<div class="filters" role="group" aria-label="Filter agents">${(['all', 'running', 'attention'] as const).map(key => `<button id="filter-${key}" data-filter="${key}" ${key === 'attention' ? 'aria-label="Needs attention" title="Needs attention"' : ''} class="${filter === key ? 'selected' : ''}" aria-pressed="${filter === key}">${key === 'all' ? 'All agents' : key === 'running' ? 'Running' : 'Attention'}${key === 'all' ? `<span>${snapshot.agents.length}</span>` : ''}</button>`).join('')}</div>` : '<span class="stats-heading">Statistics</span>'}<div class="view-tabs" role="tablist" aria-label="Panel views">${(['live', 'stats'] as const).map(tab => `<button role="tab" id="view-${tab}" data-view="${tab}" aria-selected="${view === tab}" aria-controls="${tab}-panel" tabindex="${view === tab ? 0 : -1}">${tab === 'live' ? 'Live' : 'Stats'}</button>`).join('')}</div></div>
-    ${view === 'stats' ? statsView() : `<section id="live-panel" class="agent-grid" role="tabpanel" aria-labelledby="view-live" aria-label="Agents">${agents.map(card).join('') || '<div class="empty-state"><span>✓</span><h2>Nothing here right now.</h2><p>Choose All agents to see every provider.</p></div>'}</section>`}
+    ${view === 'stats' ? (historyAgent ? itemHistoryView(historyAgent) : statsView()) : `<section id="live-panel" class="agent-grid" role="tabpanel" aria-labelledby="view-live" aria-label="Agents">${agents.map(card).join('') || '<div class="empty-state"><span>✓</span><h2>Nothing here right now.</h2><p>Choose All agents to see every provider.</p></div>'}</section>`}
     <footer><div title="Close the window to keep monitoring in the menu bar or system tray."><span class="footer-dot"></span>${snapshot.demo ? 'Demo' : settings.processEnabled ? `Resources ${age(snapshot.resourceAt)}` : 'Monitoring off'} <span class="separator">/</span> Usage ${age(snapshot.updatedAt)}</div><button id="quit" title="Stop monitoring and quit">Quit app</button></footer>
     </main>`;
   if (focus) document.getElementById(focus)?.focus({ preventScroll: true });
+  const newHistoryTable = app.querySelector<HTMLElement>('.item-history-table');
+  if (newHistoryTable && newHistoryTable.dataset.scrollKey === historyScrollKey) newHistoryTable.scrollTop = historyScroll;
   window.scrollTo({ top: scroll });
 }
 function applyTheme(): void {
@@ -155,10 +187,19 @@ async function openSettings(): Promise<void> {
 app.addEventListener('click', async event => {
   const target = (event.target as HTMLElement).closest<HTMLElement>('button, a'); if (!target) return;
   if (target.classList.contains('brand')) { event.preventDefault(); filter = 'all'; view = 'live'; render(); }
-  if (target.dataset.view) { view = target.dataset.view as typeof view; render(); }
+  if (target.dataset.view) { view = target.dataset.view as typeof view; historyItem = null; render(); }
+  if (target.dataset.historyItem && snapshot.agents.some(agent => agent.id === target.dataset.historyItem)) {
+    historyItem = target.dataset.historyItem; historyRange = { from: '', to: '' }; historyGrouping = 'week'; historyDescending = true; collapsedGroups.clear();
+    view = 'stats'; render(); window.scrollTo(0, 0); document.getElementById('item-history-title')?.focus();
+  }
+  if (target.id === 'history-back') { historyItem = null; render(); document.getElementById('view-stats')?.focus(); }
+  if (target.id === 'history-clear') { historyRange = { from: '', to: '' }; render(); }
+  if (target.id === 'history-sort') { historyDescending = !historyDescending; render(); }
+  if (target.dataset.historyGroup) { const key = target.dataset.historyGroup; collapsedGroups.has(key) ? collapsedGroups.delete(key) : collapsedGroups.add(key); render(); }
   if (target.dataset.statsMode) { statsMode = target.dataset.statsMode as typeof statsMode; render(); }
   if (target.id === 'previous-week' || target.id === 'next-week') { range = shiftRange(range, target.id === 'previous-week' ? -7 : 7); render(); }
   if (target.id === 'current-week') { range = weekRange(); render(); }
+  if (target.id === 'stats-today') { range = todayRange(); render(); }
   if (target.id === 'update-prices' && !priceRequest) {
     priceRequest = true; priceError = ''; render();
     try { await api.refreshPrices(); } catch { priceError = 'Could not start a price update. Wait a minute and retry.'; }
@@ -177,6 +218,9 @@ app.addEventListener('change', event => {
   if (target.id === 'stats-from') range = { ...range, from: target.value };
   else if (target.id === 'stats-to') range = { ...range, to: target.value };
   else if (target.id === 'stats-provider') statsProvider = target.value;
+  else if (target.id === 'history-from') historyRange = { ...historyRange, from: target.value };
+  else if (target.id === 'history-to') historyRange = { ...historyRange, to: target.value };
+  else if (target.id === 'history-group' && ['day', 'week', 'month', 'year'].includes(target.value)) { historyGrouping = target.value as HistoryGrouping; collapsedGroups.clear(); }
   else return;
   render();
 });
@@ -188,9 +232,10 @@ app.addEventListener('keydown', event => {
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length;
   event.preventDefault(); tabs[next].focus(); tabs[next].click();
 });
-const editingStats = () => (document.activeElement as HTMLElement)?.matches('#stats-from, #stats-to, #stats-provider');
+const statsEditors = '#stats-from, #stats-to, #stats-provider, #history-from, #history-to, #history-group';
+const editingStats = () => (document.activeElement as HTMLElement)?.matches(statsEditors);
 app.addEventListener('focusout', event => {
-  if (!(event.target as HTMLElement).matches('#stats-from, #stats-to, #stats-provider')) return;
+  if (!(event.target as HTMLElement).matches(statsEditors)) return;
   setTimeout(() => { if (snapshot && !editingStats() && !dialog.open) render(); }, 0);
 });
 app.addEventListener('toggle', event => {
