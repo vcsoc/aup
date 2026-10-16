@@ -23,6 +23,7 @@ try {
   const snapshot = await page.evaluate(() => window.panel.snapshot());
   const noTray = snapshot.errors.includes('System tray unavailable; use this window or the application launcher.');
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(noTray);
+  if (process.platform === 'darwin') await expect.poll(() => app.evaluate(({ app }) => app.dock.isVisible())).toBe(noTray);
   if (!noTray) {
     // Inspect the real native item on its next normal update, not a mock Tray.
     await app.evaluate(({ Tray }) => {
@@ -63,5 +64,22 @@ try {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.locator('input[name=startAtLogin]')).toBeChecked();
   await expect(page.locator('input[name=startAtLogin]')).toBeDisabled();
-  console.log('PASS: native nonempty menu-bar icon, macOS left-click window-only/right-click menu dispatch, background login launch, tray fallback, reopen, settings migration, and smoke isolation from OS startup registration.');
+  if (process.platform === 'darwin' && !noTray) {
+    // A visible panel/settings dialog must not bring back the Dock icon. Exercise
+    // the same fallback helper against native Dock APIs, not a mocked dock.
+    const dock = await app.evaluate(async ({ app }) => {
+      const require = process.getBuiltinModule('node:module').createRequire(`${app.getAppPath()}/package.json`);
+      const { configureDock } = require('./dist/main/dock.js');
+      const before = app.dock.isVisible(); await configureDock(app.dock, false);
+      const fallback = app.dock.isVisible();
+      // Electron documents a one-second suppression window for dock.hide().
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      await configureDock(app.dock, true);
+      return { before, fallback };
+    });
+    expect(dock).toEqual({ before: false, fallback: true });
+    // AppKit applies hide() asynchronously even though Electron returns void.
+    await expect.poll(() => app.evaluate(({ app }) => app.dock.isVisible())).toBe(false);
+  }
+  console.log('PASS: menu-bar-only macOS app (Dock hidden while panel/settings are visible; native fallback restores Dock), native nonempty menu-bar icon, macOS left-click window-only/right-click menu dispatch, background login launch, tray fallback, reopen, settings migration, and smoke isolation from OS startup registration.');
 } finally { await app?.close(); await rm(home, { recursive: true, force: true }); }

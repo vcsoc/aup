@@ -1,6 +1,6 @@
 {
   "name": "agent-usage-panel",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Private, cross-platform AI agent usage and resource monitor inspired by Omarchy",
   "author": "Agent Usage Panel contributors",
   "license": "MIT",
@@ -42,7 +42,7 @@
     "directories": { "output": "release" },
     "files": ["dist/**/*", "assets/**/*", "package.json", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     "asar": true,
-    "mac": { "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }], "category": "public.app-category.developer-tools", "hardenedRuntime": true },
+    "mac": { "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }], "category": "public.app-category.developer-tools", "hardenedRuntime": true, "extendInfo": { "LSUIElement": true } },
     "win": { "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }] },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
     "linux": { "target": ["AppImage", "deb", "rpm", "tar.gz"], "category": "Utility", "maintainer": "Agent Usage Panel contributors" }

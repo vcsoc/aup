@@ -44,7 +44,11 @@ used just because their file was refreshed. Stats provider totals (and providers
 within each day) sort by selected-range/day token usage descending.
 
 The panel opens immediately, with a robot icon in the menu bar / system tray.
-Left-click it to show or hide only the panel; right-click for Open, Refresh,
+On **macOS it is menu-bar-only**, with no running Dock icon (including while the
+panel or Settings is open). If a menu-bar item cannot be created, the Dock icon
+returns so the app remains accessible. A previously pinned Dock shortcut is
+independent: right-click it → Options → Remove from Dock if needed.
+Left-click the menu-bar icon to show or hide only the panel; right-click for Open, Refresh,
 and Quit. On macOS, left-click never opens the context menu.
 macOS also shows the highest current quota percentage beside the icon. Closing
 the window keeps monitoring; **Quit app** actually exits. `R` refreshes,

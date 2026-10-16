@@ -1,6 +1,6 @@
 # Verification evidence
 
-Verified locally through **2026-10-15** (historical checks dated below), macOS 26.5.2 / ARM64, Node.js 22.22.2,
+Verified locally through **2026-10-16** (historical checks dated below), macOS 26.5.2 / ARM64, Node.js 22.22.2,
 npm 10.9.7, Electron 44.7.2.
 
 ## Executed successfully
@@ -8,12 +8,13 @@ npm 10.9.7, Electron 44.7.2.
 | Check | Evidence |
 | --- | --- |
 | Strict TypeScript | `npm run typecheck` passes for renderer/shared/main code and tests |
-| Unit/integration suite | `npm test`: **123 tests, 13 files, all passing**; date/history tests also pass with `TZ=America/New_York` |
+| Unit/integration suite | `npm test`: **128 tests, 14 files, all passing**; date/history tests also pass with `TZ=America/New_York` |
 | Production build | `npm run build`: main/worker compilation and local Vite renderer assets |
 | Worker integration | `node scripts/worker-smoke.mjs`: isolated Claude/Codex/Pi/import fixtures, copied-response deduplication, backend attribution, cached-read breakdown, quotas off, projected metadata, settings reset |
 | Desktop UI | `node scripts/smoke.mjs`: launches actual Electron, checks content-fitted 420px window height (including shrink-on-filter), larger matching token/CPU/RAM colors, wider charts, today costs, provider/day Stats tabs, editable inclusive dates, validation, week navigation, provider filtering, keyboard tabs, locally loaded JetBrains Mono, settings, dark/light themes, narrow/wide resizing and refresh |
 | Today and item history | v0.2.5 `scripts/history-smoke.mjs` passes in development and installed apps: Today between previous-week and This week, exact current-day dates/totals, item navigation from Live/Stats, independent all-history dates, daily/weekly/monthly/yearly grouping, Monday weeks crossing month/year boundaries, newest-first groups/days and reversible sorting, optional inclusive one-/two-sided filters, partial-period/group/grand totals, invalid/reversed/empty ranges, keyboard collapse, preserved filters/collapse/inner scroll on host pushes, Pi attribution link, custom-account name escaping, and 360/420/1000px layouts. |
 | Integrated macOS controls | v0.2.4 `scripts/window-smoke.mjs` passes against development and installed apps: outer/content bounds match (no OS title strip), native button position (10, 11), 36px header/80px reserved area, draggable whitespace and non-draggable links/actions, Settings below controls, minimize/restore, and production close-to-tray/reopen (demo without `--smoke`). Native window captures confirm real traffic lights share the branding row. Native operations/geometry are tested; OS mouse-button automation and fullscreen transitions are not. Windows/Linux native-frame options are unchanged and unit-tested. |
+| Menu-bar-only macOS app | v0.2.6 development and installed startup checks verify a nonempty menu-bar item with positive bounds and `app.dock.isVisible() === false`, including with the panel and Settings visible. The native fallback helper restores the Dock, then hides it again (respecting Electron's documented one-second hide-call interval). Installed `Info.plist` has `LSUIElement = true`; LaunchServices identifies the actual normal-profile running app as `ApplicationType = UIElement`. Removed its pre-existing pinned Dock shortcut once, verified every other pinned item unchanged, and saved the original Dock preferences beside the app backup. Unit coverage checks hiding, awaited restoration, missing Dock API, and unchanged Windows/Linux behavior. |
 | macOS tray clicks | v0.2.3 unit coverage proves no automatic menu is attached on macOS and explicit right-click opens it; Windows/Linux retain native attachment. Development and installed Electron smoke checks emit left/left/right/left events on the actual Tray, checking panel visibility and that only right-click invokes the menu with Open/Refresh/Quit. Physical mouse input was not automated. |
 | Activity ordering | Live rows and provider picker use running state, today's processed tokens, last request/prompt time, then recent volume, with deterministic name/ID ties. Unit tests cover updates, no mutation/CPU jitter, imports and invalid/future dates. Development/installed smoke checks assert exact demo order, fixture Codex first, and descending Stats totals. |
 | Running status color | v0.2.1 development and installed UI checks assert bright green Running text/dots in dark mode, saturated contrast-safe green in light mode, and muted Idle labels. |
@@ -25,7 +26,7 @@ npm 10.9.7, Electron 44.7.2.
 | Unpacked application | `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack`: creates native ARM64 `.app` |
 | Packaged runtime | `scripts/smoke.mjs`, `scripts/host-smoke.mjs`, and `scripts/startup-smoke.mjs` pass with `AUP_EXECUTABLE` pointing at the unpacked `.app` executable, including its ASAR-packaged worker/dependencies and bundled JetBrains Mono |
 | Install image | `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64`: creates unsigned ARM64 DMG |
-| Installed update | Installed v0.2.5 at `/Applications/Agent Usage Panel.app`; UI, item-history, real-host, login/tray, and integrated-window smoke scripts passed against that executable using temporary profiles. The first installed host check completed its assertions but timed out during shutdown; its test process was stopped and a clean repeat completed successfully. Earlier normal-profile checks verified actual retained-history Stats. Relaunched the normal app and left it running with its menu-bar item. Existing profile directories were not replaced; absent custom settings remained absent and the public pricing cache checksum was unchanged. The previous v0.2.4 bundle is retained under `~/Library/Caches/Agent Usage Panel/backups/20261015-101202/` (earlier backups also retained). |
+| Installed update | Installed v0.2.6 at `/Applications/Agent Usage Panel.app`; UI, login/tray/Dock, and integrated-window smoke scripts passed against that executable using temporary profiles. Earlier v0.2.5 installed checks covered item history and the real host/worker. Relaunched the normal app and left it running as a menu-bar-only UIElement. Existing profile directories were not replaced; absent custom settings remained absent and the public pricing cache checksum was unchanged. The previous v0.2.5 bundle and original Dock preferences are retained under `~/Library/Caches/Agent Usage Panel/backups/20261016-113759/` (earlier backups also retained). |
 | Actual public pricing refresh | Installed normal app's **Update prices** completed successfully on `2026-10-14T19:54:26.608Z`, caching **8,356** current public model prices and rescanning actual history without a pricing error. Bundled baseline remains 8,355 models from the earlier same-day fetch. This request was separate from provider quota checks and carried no account/usage data. |
 | Dependencies | `npm audit`: **0 vulnerabilities** (including development dependencies) |
 | Upstream preservation | All **30 vendored files** compared byte-for-byte against pinned Omarchy commit `84cfb93959f4fe0bbb71de71593b36647d2ba78d` |
@@ -101,7 +102,7 @@ suite is reference material, not counted among this project's passing tests.
 ## Local artifacts
 
 - `release/mac-arm64/Agent Usage Panel.app`
-- `release/Agent Usage Panel-0.2.5-arm64.dmg`
+- `release/Agent Usage Panel-0.2.6-arm64.dmg`
 
 Build outputs are ignored by Git. The app is unsigned and unnotarized; no signing
 identity was used. No installers were published. See the README for building on each

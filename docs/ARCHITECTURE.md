@@ -116,6 +116,11 @@ provider replaces the native record. Imported accounts receive their own limits
 but not another copy of the provider's usage. Unknown providers need no UI edits.
 
 `src/main/main.ts` owns windows, the tray, notifications, IPC, and worker lifecycle.
+The macOS bundle sets `LSUIElement: true`, avoiding a Dock icon at launch.
+`src/main/dock.ts` also hides the Dock icon at runtime once tray creation succeeds
+(including development), without hiding the panel. Failed tray setup destroys any
+partial item and restores the native Dock for access; Windows/Linux are unchanged.
+The app never changes Dock pins or other desktop preferences automatically.
 `src/main/startup.ts` reconciles the default-on login preference using native
 macOS/Windows login items or an atomic, escaped XDG `.desktop` entry on Linux.
 Linux AppImages register their persistent image rather than the transient mount.

@@ -6,6 +6,7 @@ import { defaultSettings, loadSettings, saveSettings } from './settings.js';
 import { demoSnapshot } from './demo.js';
 import { configureStartup, type StartupResult } from './startup.js';
 import { configureTrayMenu } from './tray-menu.js';
+import { configureDock } from './dock.js';
 import { windowChrome } from './window-chrome.js';
 import { homedir } from 'node:os';
 import { names, newAgent, providerIds, type Settings, type Snapshot } from '../shared/types.js';
@@ -166,7 +167,11 @@ else {
       tray.on('click', () => { if (window?.isVisible()) window.hide(); else show(true); });
       tray.on('double-click', () => show(true));
       updateTray();
-    } catch { state.errors.push('System tray unavailable; use this window or the application launcher.'); }
+    } catch {
+      tray?.destroy(); tray = null;
+      state.errors.push('System tray unavailable; use this window or the application launcher.');
+    }
+    await configureDock(app.dock, Boolean(tray));
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       ...(process.platform === 'darwin' ? [{ label: 'Agent Usage Panel', submenu: [{ role: 'about' as const }, { type: 'separator' as const }, { role: 'quit' as const }] }] : []),
       { label: 'View', submenu: [{ label: 'Show panel', accelerator: 'CmdOrCtrl+Shift+U', click: () => show() }, { role: 'reload' }, { role: 'togglefullscreen' }] },
