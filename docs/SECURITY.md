@@ -93,12 +93,19 @@ without notice; unavailable/unsupported data is reported rather than invented.
 ## Scan bounds and residual limitations
 
 JSON imports/credentials are capped at 4 MiB; ancillary text at 1 MiB. Session
-JSONL files are capped at 128 MiB, individual lines at 2 MiB. A traversal admits at
+JSONL is streamed in 64 KiB chunks with a 2 MiB **byte** limit per row, not a
+whole-file size cutoff. Long-lived logs can legitimately exceed 128 MiB due to
+images/tool output. Oversized rows are discarded chunk-by-chunk through their
+newline; valid usage before and after them is retained. Invalid/oversized rows
+produce sanitized partial-coverage warnings that survive metadata-cache hits.
+Reads stop at the regular file's initial byte length, leaving concurrent appends
+for the next poll; unfinished final rows wait for a newline. A traversal admits at
 most 20,000 files and 100,000 directory entries, at most 12 nested directory
 levels. Nested symlinks aren't followed. Configured root directories are trusted
 user choices and can themselves be symlinks; filesystem races aren't a security
 boundary against other processes running as the same user. Large histories can
-still consume significant memory because projected events are cached.
+still consume significant I/O and memory because changed files are streamed again
+and projected events are cached; transcript bodies are not cached.
 
 Provider tokens are fingerprinted for cache identity, never written by the app.
 Codex keyring identity isn't observable without the CLI: file/config identity and

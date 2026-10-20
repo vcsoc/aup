@@ -45,23 +45,42 @@ export async function walk(root: string, accept: (name: string) => boolean, maxF
   }
   return result;
 }
-export async function* jsonLines(file: string): AsyncGenerator<Json> {
+export async function* jsonLines(file: string, onWarning?: (warning: string) => void): AsyncGenerator<Json> {
   const info = await stat(file);
-  if (info.size > 128 * 1024 * 1024) throw new Error('Session exceeds 128 MiB scan limit');
-  const stream = createReadStream(file, { encoding: 'utf8', highWaterMark: 64 * 1024 });
-  let pending = '';
+  if (!info.isFile()) throw new Error('Session is not a regular file');
+  if (!info.size) return;
+  // Bound memory per row, not total transcript size. Snapshot the end so an
+  // actively growing log cannot keep this scan open indefinitely.
+  const stream = createReadStream(file, { highWaterMark: 64 * 1024, end: info.size - 1 });
+  const maxRowBytes = 2 * 1024 * 1024;
+  let parts: Buffer[] = []; let bytes = 0; let skipping = false;
+  const warned = new Set<string>();
+  const warn = (message: string) => { if (!warned.has(message)) { warned.add(message); onWarning?.(message); } };
   try {
     for await (const chunk of stream) {
-      pending += chunk;
-      let end: number;
-      while ((end = pending.indexOf('\n')) >= 0) {
-        const line = pending.slice(0, end); pending = pending.slice(end + 1);
-        if (line.length > 2 * 1024 * 1024) throw new Error('Session line exceeds 2 MiB scan limit');
-        try { yield object(JSON.parse(line)); } catch { /* torn/invalid rows are isolated */ }
+      let start = 0;
+      while (start < chunk.length) {
+        const newline = chunk.indexOf(10, start);
+        const end = newline < 0 ? chunk.length : newline;
+        if (!skipping) {
+          bytes += end - start;
+          if (bytes > maxRowBytes) {
+            parts = []; skipping = true;
+            warn('An oversized session row was skipped; other usage was retained. Totals may be partial.');
+          } else parts.push(chunk.subarray(start, end));
+        }
+        if (newline < 0) break;
+        if (!skipping && bytes) {
+          const line = Buffer.concat(parts, bytes).toString('utf8');
+          if (line.trim()) {
+            try { yield object(JSON.parse(line)); }
+            catch { warn('An invalid session row was skipped; other usage was retained. Totals may be partial.'); }
+          }
+        }
+        parts = []; bytes = 0; skipping = false; start = newline + 1;
       }
-      if (pending.length > 2 * 1024 * 1024) throw new Error('Session line exceeds 2 MiB scan limit');
     }
-    // A final incomplete line may still be in the process of being written.
-    // Revisit it once the next poll observes a newline/size change.
+    // Wait for a newline on an unfinished final row. An oversized row is
+    // discarded chunk-by-chunk, never buffered or allowed to abort the file.
   } finally { stream.destroy(); }
 }

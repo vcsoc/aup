@@ -282,7 +282,9 @@ installers. A local repository has no hosted CI until you push it to a remote.
 - A file metadata cache avoids reparsing unchanged histories, in a worker off
   the UI thread. Scans don't follow nested symlinks. File/line/traversal limits
   prevent runaway scans and surface partial-total warnings. Missing homes are
-  normal; unreadable or oversized sessions are reported.
+  normal. Large JSONL sessions are streamed rather than dropped at 128 MiB;
+  unreadable files and skipped invalid/oversized rows produce partial-coverage
+  warnings. A skipped row does not discard the rest of that session's usage.
 - No telemetry, analytics, cloud account, local HTTP server, or persisted usage
   database. The app writes settings and explicitly refreshed public model prices
   atomically with private POSIX permissions (Windows inherits the profile ACL),

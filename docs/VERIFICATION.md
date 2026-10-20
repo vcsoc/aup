@@ -1,6 +1,6 @@
 # Verification evidence
 
-Verified locally through **2026-10-16** (historical checks dated below), macOS 26.5.2 / ARM64, Node.js 22.22.2,
+Verified locally through **2026-10-20** (historical checks dated below), macOS 26.5.2 / ARM64, Node.js 22.22.2,
 npm 10.9.7, Electron 44.7.2.
 
 ## Executed successfully
@@ -8,9 +8,10 @@ npm 10.9.7, Electron 44.7.2.
 | Check | Evidence |
 | --- | --- |
 | Strict TypeScript | `npm run typecheck` passes for renderer/shared/main code and tests |
-| Unit/integration suite | `npm test`: **128 tests, 14 files, all passing**; date/history tests also pass with `TZ=America/New_York` |
+| Unit/integration suite | `npm test`: **139 tests, 15 files, all passing**; date/history tests also pass with `TZ=America/New_York` |
 | Production build | `npm run build`: main/worker compilation and local Vite renderer assets |
-| Worker integration | `node scripts/worker-smoke.mjs`: isolated Claude/Codex/Pi/import fixtures, copied-response deduplication, backend attribution, cached-read breakdown, quotas off, projected metadata, settings reset |
+| Worker integration | `node scripts/worker-smoke.mjs`: isolated Claude/Codex/Pi/import fixtures, usage/cost recovery at the tail of a >128 MiB active session, oversized-row isolation, copied-response deduplication, backend attribution, cached-read breakdown, quotas off, projected metadata, settings reset |
+| Large-session daily recovery | v0.2.7 streams >128 MiB logs instead of rejecting them, and skips only oversized/invalid rows while retaining usage before/after them. Unit cases cover byte limits, UTF-8/chunk boundaries, CRLF, unfinished rows, finite snapshot reads, cache-hit warning retention/repair, Pi→Codex recorded costs and native estimates, and later-day appends to old sessions. A local real-history scan now includes a >200 MB active session and completes in about 2.2 seconds. Installed normal-profile Live, Today Stats, and today-filtered Codex history were checked against actual snapshot aggregates: nonzero token/cache/cost totals reconcile, and the Dock stays hidden. Local-only evidence is in ignored `.test-results/installed-usage-{live,today}.png` and `installed-usage-verified.json`; real usage data is not published in documentation. |
 | Desktop UI | `node scripts/smoke.mjs`: launches actual Electron, checks content-fitted 420px window height (including shrink-on-filter), larger matching token/CPU/RAM colors, wider charts, today costs, provider/day Stats tabs, editable inclusive dates, validation, week navigation, provider filtering, keyboard tabs, locally loaded JetBrains Mono, settings, dark/light themes, narrow/wide resizing and refresh |
 | Today and item history | v0.2.5 `scripts/history-smoke.mjs` passes in development and installed apps: Today between previous-week and This week, exact current-day dates/totals, item navigation from Live/Stats, independent all-history dates, daily/weekly/monthly/yearly grouping, Monday weeks crossing month/year boundaries, newest-first groups/days and reversible sorting, optional inclusive one-/two-sided filters, partial-period/group/grand totals, invalid/reversed/empty ranges, keyboard collapse, preserved filters/collapse/inner scroll on host pushes, Pi attribution link, custom-account name escaping, and 360/420/1000px layouts. |
 | Integrated macOS controls | v0.2.4 `scripts/window-smoke.mjs` passes against development and installed apps: outer/content bounds match (no OS title strip), native button position (10, 11), 36px header/80px reserved area, draggable whitespace and non-draggable links/actions, Settings below controls, minimize/restore, and production close-to-tray/reopen (demo without `--smoke`). Native window captures confirm real traffic lights share the branding row. Native operations/geometry are tested; OS mouse-button automation and fullscreen transitions are not. Windows/Linux native-frame options are unchanged and unit-tested. |
@@ -19,14 +20,14 @@ npm 10.9.7, Electron 44.7.2.
 | Activity ordering | Live rows and provider picker use running state, today's processed tokens, last request/prompt time, then recent volume, with deterministic name/ID ties. Unit tests cover updates, no mutation/CPU jitter, imports and invalid/future dates. Development/installed smoke checks assert exact demo order, fixture Codex first, and descending Stats totals. |
 | Running status color | v0.2.1 development and installed UI checks assert bright green Running text/dots in dark mode, saturated contrast-safe green in light mode, and muted Idle labels. |
 | Runtime isolation | Smoke checks confirm sandbox/context isolation enabled, Node integration disabled, no renderer `require`/`process` or arbitrary filesystem preload method |
-| Real host + worker | `node scripts/host-smoke.mjs`: temporary profile, actual collection, settings persisted through IPC, malicious imported name escaped, fixture credential/content not included in snapshot, renderer networking denied, recorded Pi/Codex costs deduplicated, partial cost/date totals and oversize-file warnings shown in Stats, invalid height IPC rejected |
+| Real host + worker | `node scripts/host-smoke.mjs`: temporary profile, actual collection, settings persisted through IPC, malicious imported name escaped, fixture credential/content not included in snapshot, renderer networking denied, recorded Pi/Codex costs deduplicated, partial cost/date totals and skipped-row warnings shown in Stats, invalid height IPC rejected |
 | Login launch integration | `node scripts/startup-smoke.mjs`: hidden `--startup` launch, nonempty native menu-bar image with opaque pixels, macOS template flag and positive native bounds even with no quota title, tray-unavailable fallback, reopen, old-settings migration, demo/smoke registration isolation |
 | Actual macOS login item | Installed v0.2.0 launched with the normal profile and **without** demo/smoke flags; native `app.getLoginItemSettings().openAtLogin === true`. Its actual menu-bar item had a nonempty template image, opaque pixels, and positive native bounds (38×30). Earlier v0.1.2 verification also checked the enabled/checked Settings checkbox and explicit hidden `--startup` reopening. No reboot/logout was performed; native macOS login-launch detection still needs an actual login cycle. |
 | Native process sampler | `collectProcesses` executed against macOS' actual process table; recognized active Pi/Codex trees and returned aggregate CPU/RSS only |
 | Unpacked application | `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack`: creates native ARM64 `.app` |
 | Packaged runtime | `scripts/smoke.mjs`, `scripts/host-smoke.mjs`, and `scripts/startup-smoke.mjs` pass with `AUP_EXECUTABLE` pointing at the unpacked `.app` executable, including its ASAR-packaged worker/dependencies and bundled JetBrains Mono |
 | Install image | `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --arm64`: creates unsigned ARM64 DMG |
-| Installed update | Installed v0.2.6 at `/Applications/Agent Usage Panel.app`; UI, login/tray/Dock, and integrated-window smoke scripts passed against that executable using temporary profiles. Earlier v0.2.5 installed checks covered item history and the real host/worker. Relaunched the normal app and left it running as a menu-bar-only UIElement. Existing profile directories were not replaced; absent custom settings remained absent and the public pricing cache checksum was unchanged. The previous v0.2.5 bundle and original Dock preferences are retained under `~/Library/Caches/Agent Usage Panel/backups/20261016-113759/` (earlier backups also retained). |
+| Installed update | Installed v0.2.7 at `/Applications/Agent Usage Panel.app`; UI, item-history, real host/worker, login/tray/Dock, and integrated-window smoke scripts passed against that executable using temporary profiles. Also verified actual normal-profile daily usage/costs as above, then relaunched and left it running menu-bar-only. Existing profile directories were not replaced; absent custom settings remained absent and the public pricing cache checksum was unchanged. The previous v0.2.6 bundle is retained under `~/Library/Caches/Agent Usage Panel/backups/20261020-132932/`; earlier app/Dock-preference backups remain untouched. |
 | Actual public pricing refresh | Installed normal app's **Update prices** completed successfully on `2026-10-14T19:54:26.608Z`, caching **8,356** current public model prices and rescanning actual history without a pricing error. Bundled baseline remains 8,355 models from the earlier same-day fetch. This request was separate from provider quota checks and carried no account/usage data. |
 | Dependencies | `npm audit`: **0 vulnerabilities** (including development dependencies) |
 | Upstream preservation | All **30 vendored files** compared byte-for-byte against pinned Omarchy commit `84cfb93959f4fe0bbb71de71593b36647d2ba78d` |
@@ -39,6 +40,10 @@ They are explicitly labeled demo data.
 
 ## Unit/integration coverage
 
+- Bounded-memory JSONL streaming beyond 128 MiB, skipped oversized/invalid rows,
+  preserved prefix/tail usage, warning deduplication/cache retention/repair, UTF-8
+  and CRLF boundaries, finite reads during concurrent appends, newline completion,
+  empty files, and regular-file checks.
 - Claude partial streaming rows, request deduplication, human/tool-result prompts.
 - Codex cumulative-counter deduplication, cached/reasoning token inclusion,
   OpenAI/custom-provider attribution, old metadata compatibility.
@@ -102,7 +107,7 @@ suite is reference material, not counted among this project's passing tests.
 ## Local artifacts
 
 - `release/mac-arm64/Agent Usage Panel.app`
-- `release/Agent Usage Panel-0.2.6-arm64.dmg`
+- `release/Agent Usage Panel-0.2.7-arm64.dmg`
 
 Build outputs are ignored by Git. The app is unsigned and unnotarized; no signing
 identity was used. No installers were published. See the README for building on each

@@ -35,8 +35,14 @@ OS tray/menu bar + normal desktop window
 not credentials, transcript bodies, raw command lines, or filesystem access.
 
 `src/main/worker.ts` performs collection. Per-file cache entries store only
-parsed usage events keyed by size and modification time. It recomputes calendar
-buckets for every scan, so midnight doesn't leave yesterday's counts in Today.
+parsed usage events keyed by size and modification time. `jsonLines` streams a
+finite snapshot of each regular file in 64 KiB chunks, buffering at most a 2 MiB
+row plus the current chunk. There is no 128 MiB whole-session rejection: oversized
+rows are skipped through the next newline, preserving usage on both sides, while
+malformed rows are isolated. Sanitized coverage warnings are cached with events
+and replayed on unchanged files, including Pi→Codex attribution. Only metadata
+survives parsing. Calendar buckets are recomputed for every scan, so midnight
+doesn't leave yesterday's counts in Today.
 Settings changes invalidate usage caches and clear the display immediately. A
 generation check discards old in-flight results. Resource sampling is independent
 of quota requests and scanning, so a slow provider doesn't freeze the renderer.

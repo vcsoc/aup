@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile, appendFile, rm, unlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, appendFile, rm, unlink, open, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { localDay, recentDays, summarize, parseSession, UsageScanner, type Event } from '../src/main/usage.js';
@@ -183,5 +183,60 @@ describe('scanner cache', () => {
     const dir = path.join(settings.paths.grok, 'sessions', 'project', 'session'); await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, 'usage.json'), JSON.stringify({ turns: [{ endedAt: time, modelUsage: { grok: { inputTokens: 100, cachedReadTokens: 50, outputTokens: 10, cacheCreationTokens: 5 } } }] }));
     const result = await new UsageScanner().scan(settings, new Date(time)); expect(result.usage.grok?.todayTokens).toBe(115); expect(result.usage.grok?.prompts).toBe(1);
+  });
+});
+
+describe('large active sessions retain daily usage', () => {
+  const pi = (id: string, timestamp = time) => ({ type: 'message', id, timestamp, message: { role: 'assistant', provider: 'openai-codex', responseId: id, model: 'gpt', usage: { input: 10, output: 20, cacheRead: 70, cost: { total: 0.25 } } } });
+  const largeRow = () => JSON.stringify({ type: 'message', message: { role: 'toolResult', content: 'PRIVATE-LARGE-PAYLOAD'.repeat(120000) } });
+  it('keeps Pi and native Codex usage/costs after oversized transcript content', async () => {
+    const settings = defaultSettings({}, await temp());
+    for (const provider of ['pi', 'codex'] as const) await mkdir(path.join(settings.paths[provider], 'sessions'), { recursive: true });
+    await writeFile(path.join(settings.paths.pi, 'sessions', 'pi.jsonl'), largeRow() + '\n' + JSON.stringify(pi('pi-response')) + '\n');
+    const nativeUsage = codex(200, 180, 20); nativeUsage.payload.info.last_token_usage.cached_input_tokens = 150;
+    const native = [{ type: 'session_meta', payload: { id: 'native', model_provider: 'openai' } }, { type: 'turn_context', payload: { model: 'gpt' } }].map(row => JSON.stringify(row)).join('\n') + '\n' + largeRow() + '\n' + JSON.stringify(nativeUsage) + '\n';
+    await writeFile(path.join(settings.paths.codex, 'sessions', 'native.jsonl'), native);
+    const catalog = normalizePricingData({ openai: { models: { gpt: { cost: { input: 2, output: 10, cache_read: 0.2 } } } } });
+    const result = await new UsageScanner().scan(settings, new Date(time), catalog);
+    expect(result.usage.codex?.todayTokens).toBe(300); expect(result.usage.codex?.todayCachedTokens).toBe(220);
+    expect(result.usage.codex?.todayCost?.usd).toBeCloseTo(0.25029, 8);
+    expect(result.usage.codex?.todayCost).toMatchObject({ knownTokens: 300, unpricedTokens: 0, recorded: true, estimated: true });
+    expect(result.usage.codex?.sources).toEqual({ 'Codex CLI': 200, 'Pi (OpenAI Codex)': 100 });
+    expect(result.usage.pi?.todayTokens).toBe(0); expect(result.piUsesCodex).toBe(true);
+    expect(result.warnings.codex?.join(' ')).toContain('oversized session row');
+    expect(JSON.stringify(result)).not.toContain('PRIVATE-LARGE-PAYLOAD');
+  });
+  it('recovers today at the end of a session beyond 128 MiB and follows later days/appends', async () => {
+    const settings = defaultSettings({}, await temp()); const dir = path.join(settings.paths.pi, 'sessions'); await mkdir(dir, { recursive: true });
+    const file = path.join(dir, 'long-running.jsonl'); const handle = await open(file, 'w');
+    try {
+      await handle.write(JSON.stringify(pi('old', '2026-08-10T12:00:00Z')) + '\n');
+      const tail = Buffer.from('\n' + JSON.stringify(pi('today', '2026-10-20T12:00:00Z')) + '\n');
+      await handle.write(tail, 0, tail.length, 129 * 1024 * 1024);
+    } finally { await handle.close(); }
+    expect((await stat(file)).size).toBeGreaterThan(128 * 1024 * 1024);
+    const scanner = new UsageScanner();
+    for (let i = 0; i < 2; i++) {
+      const result = await scanner.scan(settings, new Date('2026-10-20T14:00:00Z'));
+      expect(result.usage.codex).toMatchObject({ todayTokens: 100, todayCachedTokens: 70, totalTokens: 200, todayCost: { usd: 0.25 } });
+      expect(result.usage.codex?.history).toHaveLength(2); expect(result.usage.codex?.days).toHaveLength(7);
+    }
+    expect((await scanner.scan(settings, new Date('2026-10-21T14:00:00Z'))).usage.codex?.todayTokens).toBe(0);
+    await appendFile(file, JSON.stringify(pi('next-day', '2026-10-21T12:00:00Z')) + '\n');
+    const next = await scanner.scan(settings, new Date('2026-10-21T14:00:00Z'));
+    expect(next.usage.codex).toMatchObject({ todayTokens: 100, totalTokens: 300, todayCost: { usd: 0.25 } });
+  }, 15000);
+  it('keeps skipped-row warnings on cache hits, propagates them to Codex, and clears repaired files', async () => {
+    const settings = defaultSettings({}, await temp()); const dir = path.join(settings.paths.pi, 'sessions'); await mkdir(dir, { recursive: true });
+    const file = path.join(dir, 'session.jsonl'); const valid = JSON.stringify(pi('response')) + '\n';
+    await writeFile(file, valid + largeRow() + '\nbroken json\n');
+    const scanner = new UsageScanner();
+    const first = await scanner.scan(settings, new Date(time));
+    const cached = await scanner.scan(settings, new Date(time));
+    expect(first.usage.codex?.todayTokens).toBe(100); expect(first.warnings.pi).toHaveLength(2);
+    expect(cached.warnings.pi).toEqual(first.warnings.pi); expect(cached.warnings.codex).toEqual(first.warnings.codex);
+    await writeFile(file, valid);
+    const repaired = await scanner.scan(settings, new Date(time));
+    expect(repaired.usage.codex?.todayTokens).toBe(100); expect(repaired.warnings.pi).toEqual([]); expect(repaired.warnings.codex).toEqual([]);
   });
 });

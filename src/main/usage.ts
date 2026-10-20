@@ -58,12 +58,12 @@ export function summarize(events: Event[], now = new Date(), catalog = bundledPr
   return usage;
 }
 
-export async function parseSession(file: string, provider: ProviderId): Promise<Event[]> {
+export async function parseSession(file: string, provider: ProviderId, onWarning?: (warning: string) => void): Promise<Event[]> {
   const events = new Map<string, Event>();
   let model = 'unknown'; let nativeProvider = 'openai'; let cumulative = '';
   let session = file; let index = 0;
   let pendingPiPrompts: Event[] = [];
-  for await (const row of jsonLines(file)) {
+  for await (const row of jsonLines(file, onWarning)) {
     index++;
     const message = object(row.message); const payload = object(row.payload);
     const time = timestamp(row.timestamp || message.timestamp);
@@ -156,7 +156,7 @@ async function grokSession(file: string): Promise<Event[]> {
   return events;
 }
 
-interface CachedFile { size: number; mtime: number; events: Event[] }
+interface CachedFile { size: number; mtime: number; events: Event[]; warnings: string[] }
 export class UsageScanner {
   private cache = new Map<string, CachedFile>();
   async scan(settings: Settings, now = new Date(), catalog: PriceCatalog = bundledPricing): Promise<{ usage: Partial<Record<ProviderId, Usage>>; warnings: Partial<Record<ProviderId, string[]>>; piUsesCodex: boolean }> {
@@ -173,10 +173,15 @@ export class UsageScanner {
         const key = `${provider}:${file}`; seen.add(key);
         try {
           const info = await stat(file); const cached = this.cache.get(key);
-          if (cached && cached.size === info.size && cached.mtime === info.mtimeMs) events.push(...cached.events);
-          else {
-            const parsed = provider === 'grok' ? await grokSession(file) : await parseSession(file, provider);
-            this.cache.set(key, { size: info.size, mtime: info.mtimeMs, events: parsed }); events.push(...parsed);
+          if (cached && cached.size === info.size && cached.mtime === info.mtimeMs) {
+            for (const event of cached.events) events.push(event);
+            problems.push(...cached.warnings);
+          } else {
+            const fileWarnings: string[] = [];
+            const parsed = provider === 'grok' ? await grokSession(file) : await parseSession(file, provider, warning => fileWarnings.push(warning));
+            this.cache.set(key, { size: info.size, mtime: info.mtimeMs, events: parsed, warnings: fileWarnings });
+            for (const event of parsed) events.push(event);
+            problems.push(...fileWarnings);
           }
         } catch { problems.push('A session was unreadable or exceeded scan limits; totals are partial.'); }
       }

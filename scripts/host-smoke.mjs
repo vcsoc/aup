@@ -54,7 +54,7 @@ try {
   await expect.poll(() => page.evaluate(() => Math.abs(window.innerHeight - document.querySelector('#app').getBoundingClientRect().height))).toBeLessThanOrEqual(2);
   await page.getByRole('tab', { name: 'Stats', exact: true }).click();
   await expect(page.locator('.stats-summary')).toContainText('$0.25+');
-  await expect(page.getByText(/Partial history:/)).toContainText('totals are partial');
+  await expect(page.getByText(/Partial history:/)).toContainText('An oversized session row was skipped');
   await expect(page.locator('.stats-summary')).toContainText('172');
   await page.getByRole('tab', { name: 'Days', exact: true }).click();
   await page.locator('#stats-provider').selectOption('codex');
